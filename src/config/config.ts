@@ -26,8 +26,13 @@ export const ConfigSchema = z.object({
     autoReview: z.boolean().default(false),
   }).prefault({}),
   shell: z.object({ enabled: z.boolean().default(true), confirmDestructive: z.boolean().default(true) }).prefault({}),
-  // Voice configuration is retained for future providers; v0.1 never opens the microphone.
-  voice: z.object({ enabled: z.boolean().default(false) }).passthrough().prefault({}),
+  voice: z.object({
+    enabled: z.boolean().default(false),
+    allowEdits: z.boolean().default(true),
+    language: z.object({ input: z.string().default('it-IT') }).passthrough().prefault({}),
+    stt: z.object({ provider: z.literal('apple').default('apple'), localOnly: z.boolean().default(true) }).prefault({}),
+    pushToTalk: z.object({ shortcut: z.literal('Space').default('Space'), maxSeconds: z.number().min(1).max(120).default(45), minConfidence: z.number().min(0).max(1).default(0.45) }).prefault({}),
+  }).passthrough().prefault({}),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 export type ProviderConfig = z.infer<typeof provider>;

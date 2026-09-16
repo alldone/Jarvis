@@ -53,7 +53,7 @@ export class ClaudeProvider implements AgentProvider {
     return args;
   }
   send(input: AgentInput): AsyncIterable<AgentEvent> {
-    return this.runner.run(this.binary, this.args(input.readOnly || this.config.permissionMode !== 'acceptEdits'),
+    return this.runner.run(this.binary, this.args(input.readOnly || (!input.allowEdits && this.config.permissionMode !== 'acceptEdits')),
       input.context.cwd, buildPrompt(input), claudeDecoder());
   }
   passthrough(command: string, input: AgentInput): AsyncIterable<AgentEvent> {

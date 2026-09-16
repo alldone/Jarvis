@@ -8,6 +8,7 @@ export class Orchestrator {
   busy = false;
   private cancelled = false;
   private history = new Map<string, string>();
+  private explicitlySelected = false;
 
   constructor(public cwd: string, readonly config: Config,
     readonly providers: Map<string, AgentProvider>, private emit: EventSink) {
@@ -22,6 +23,8 @@ export class Orchestrator {
     if (this.busy) throw new Error('Attendi la fine del task prima di cambiare agente.');
     await this.requireProvider(id);
     this.active = id;
+    this.explicitlySelected = true;
+    this.emit('JARVIS', { type: 'status', status: `AI attiva: ${id}` });
   }
 
   async requireProvider(id: string): Promise<AgentProvider> {
@@ -33,18 +36,19 @@ export class Orchestrator {
   }
 
   private async choose(explicit?: string): Promise<string> {
-    if (explicit || !this.config.agents.autoRouting) return explicit ?? this.active;
+    if (explicit || this.explicitlySelected || !this.config.agents.autoRouting) return explicit ?? this.active;
     const options = await this.availability();
     return options.find(item => item.id === this.active && item.available)?.id
       ?? options.find(item => item.available)?.id ?? this.active;
   }
 
-  private async turn(id: string, prompt: string, options: { readOnly?: boolean; independent?: boolean; slash?: boolean } = {}): Promise<string> {
+  private async turn(id: string, prompt: string, options: { readOnly?: boolean; allowEdits?: boolean; independent?: boolean; slash?: boolean } = {}): Promise<string> {
     if (this.cancelled) throw new Error('Operazione annullata.');
     const provider = await this.requireProvider(id);
     const context = await loadContext(this.cwd, this.config.project.name, id);
     await provider.startSession(context);
-    const input = { prompt, context, readOnly: options.readOnly, history: options.independent ? undefined : this.history.get(id) };
+    if (this.cancelled) throw new Error('Operazione annullata.');
+    const input = { prompt, context, readOnly: options.readOnly, allowEdits: options.allowEdits, history: options.independent ? undefined : this.history.get(id) };
     if (options.slash && !provider.passthrough) throw new Error(`Passthrough non supportato da ${id}; usa /native ${id}.`);
     this.emit(id, { type: 'status', status: options.slash ? 'Inoltro comando al provider' : 'Elaborazione in corso…' });
     const events = options.slash ? provider.passthrough!(prompt, input) : provider.send(input);
@@ -54,7 +58,7 @@ export class Orchestrator {
     for await (const event of events) {
       this.emit(id, event);
       if (event.type === 'text') output = (output + event.text).slice(-64000);
-      if (event.type === 'error') failure = event.error;
+      if (event.type === 'error' && !failure) failure = event.error;
       if (event.type === 'done') complete = true;
     }
     if (failure) throw failure;
@@ -73,9 +77,16 @@ export class Orchestrator {
     try { return await task(); } finally { this.busy = false; }
   }
 
-  run(prompt: string, explicit?: string): Promise<string> {
+  run(prompt: string, explicit?: string, options: { readOnly?: boolean; allowEdits?: boolean } = {}): Promise<string> {
     if (!prompt.trim()) return Promise.reject(new Error('Inserisci una richiesta.'));
-    return this.exclusive(async () => this.turn(await this.choose(explicit), prompt, { slash: prompt.startsWith('/') }));
+    return this.exclusive(async () => {
+      const id = await this.choose(explicit);
+      await this.requireProvider(id);
+      this.active = id;
+      if (explicit) this.explicitlySelected = true;
+      this.emit('JARVIS', { type: 'status', status: `AI destinataria: ${id}` });
+      return this.turn(id, prompt, { ...options, slash: prompt.startsWith('/') });
+    });
   }
 
   review(prompt: string): Promise<string> {
@@ -89,6 +100,7 @@ export class Orchestrator {
       // Check both before allowing the primary task to make changes.
       await this.requireProvider(primary);
       await this.requireProvider(reviewer);
+      this.active = primary;
       this.emit('JARVIS', { type: 'status', status: `Task: ${primary} → revisione: ${reviewer} → sintesi: ${primary}` });
       const result = await this.turn(primary, `${prompt}\n\nRepository snapshot:\n${await gitSnapshot(this.cwd)}`);
       const review = await this.turn(reviewer,

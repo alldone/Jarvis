@@ -35,6 +35,16 @@ jarvis> controlla l'ultimo commit
 
 Natural-language input is sent to the active agent or routed by the orchestrator when automatic routing is enabled.
 
+### Persistent agent selection (clarification, 2026-09-16)
+
+`/claude` and `/codex`, with or without a request, select the active agent for all subsequent inputs. The selection is shared between typed and spoken input: users do not need to repeat the agent name when speaking. An explicit spoken selection, such as "Codex, controlla il codice", changes that same active agent. Mentioning another agent within an ordinary request does not change the selection.
+
+The terminal always displays the selected agent (for example `jarvis[claude]>`) and announces which agent receives each request. Voice input additionally displays the transcription. Automatic routing must not silently override an explicit selection.
+
+### Live activity panels (clarification, 2026-09-16)
+
+Display each agent's activity in its own panel. The first panel is anchored to the upper-right corner; the second grows towards the left. Each panel shows agent identity, current state, elapsed time, last operation, and response preview. The transcript and input remain below the panels. Narrow terminals may show the working agent in a single compact panel.
+
 ## Core commands
 
 ```text
@@ -220,6 +230,10 @@ jarvis --live
 
 `--voice` is turn-based speech: activate, speak, transcribe, execute, answer.
 
+The initial push-to-talk gesture is **hold Space to speak, release Space to submit**. It activates only on an empty terminal prompt; Space remains normal text inside a typed request. The microphone must visibly turn on/off, key repeat must not create multiple recordings, and Escape/Ctrl+C must cancel without sending. Text and speech use the same selected agent. The first macOS implementation uses Apple Speech with on-device recognition required by default. Spoken requests may edit files when `voice.allowEdits` is enabled; commits, pushes and destructive actions retain explicit authorization requirements.
+
+After a spoken request completes, JARVIS must read the response aloud through the configured text-to-speech provider while retaining the full text on screen. Starting a new recording or pressing Escape/Ctrl+C interrupts speech. TTS output must never be fed back into the microphone capture.
+
 `--live` is the future low-latency conversational mode with streaming audio, interruption and continuous session handling.
 
 ## Languages
@@ -299,7 +313,7 @@ voice:
 
   pushToTalk:
     enabled: true
-    shortcut: "Alt+Space"
+    shortcut: "Space"
 ```
 
 `aliases` are optional alternative activation phrases. Deployments may instead configure exactly one phrase to reduce false activations.
@@ -521,7 +535,7 @@ voice:
 
   pushToTalk:
     enabled: true
-    shortcut: "Alt+Space"
+    shortcut: "Space"
 
   output:
     mode: both

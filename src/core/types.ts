@@ -17,6 +17,7 @@ export interface AgentInput {
   prompt: string;
   context: ProjectContext;
   readOnly?: boolean;
+  allowEdits?: boolean;
   history?: string;
 }
 

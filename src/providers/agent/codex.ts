@@ -33,8 +33,9 @@ export class CodexProvider implements AgentProvider {
   async isAvailable() { return (await this.availability()).available; }
   async startSession(context: ProjectContext) { return { id: randomUUID(), cwd: context.cwd }; }
   send(input: AgentInput): AsyncIterable<AgentEvent> {
+    const sandbox = input.readOnly ? 'read-only' : input.allowEdits ? 'workspace-write' : this.config.sandbox;
     const args = ['-a', 'never', 'exec', '--json', '--ephemeral', '--skip-git-repo-check',
-      '--sandbox', input.readOnly ? 'read-only' : this.config.sandbox, '--color', 'never'];
+      '--sandbox', sandbox, '--color', 'never'];
     if (this.config.model) args.push('--model', this.config.model);
     args.push('-');
     return this.runner.run(this.binary, args, input.context.cwd, buildPrompt(input), decodeCodex);

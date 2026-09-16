@@ -72,7 +72,9 @@ export class ProcessRunner {
       const code = await closed;
       if (this.stopped) throw new Error('Operazione annullata.');
       if (failure) throw failure;
-      if (code !== 0) throw new Error(`${binary} terminato con codice ${code}: ${stderr.trim() || 'nessun dettaglio disponibile'}`);
+      // Providers often emit a useful structured error on stdout and then exit non-zero.
+      // Do not replace that message with the generic exit status.
+      if (code !== 0 && !protocolFailed) throw new Error(`${binary} terminato con codice ${code}: ${stderr.trim() || 'nessun dettaglio disponibile'}`);
       if (!completed && !protocolFailed) throw new Error(`Risposta incompleta da ${binary}: manca l'evento finale. ${stderr.trim()}`);
       if (!protocolFailed) yield { type: 'done' };
     } catch (error) {

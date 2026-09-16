@@ -21,8 +21,8 @@ export function parseCommand(line: string, providerIds: Iterable<string>): Comma
 
 export const HELP = `JARVIS v0.1 — comandi
   /use <agente>           Cambia agente attivo
-  /codex <richiesta>      Invia una richiesta a Codex
-  /claude <richiesta>     Invia una richiesta a Claude
+  /codex [richiesta]      Seleziona Codex e, se presente, invia la richiesta
+  /claude [richiesta]     Seleziona Claude e, se presente, invia la richiesta
   /review <richiesta>     Task, review indipendente, sintesi
   /agents                Mostra disponibilità delle CLI
   /status                Mostra progetto, agente e stato
@@ -37,8 +37,11 @@ export const HELP = `JARVIS v0.1 — comandi
   /help                  Mostra questo messaggio
   /exit                  Esce
 
-Le richieste sono di sola lettura per default. Per modifiche con approvazioni usa /native.
+Le richieste testuali rispettano i permessi del provider. La voce consente scrittura file se voice.allowEdits è true (default).
+Commit, push, cancellazioni e azioni distruttive richiedono sempre una richiesta esplicita.
+L'agente selezionato resta attivo per testo e voce. Con --voice (macOS), tieni premuto SPAZIO sul prompt vuoto.
+Rilascia per inviare; Esc/Ctrl+C annulla la registrazione. Le richieste vocali sono di sola lettura.
 I comandi slash sconosciuti sono inoltrati al provider se supportati.
 Claude -p supporta skill, non tutti i comandi interattivi; Codex richiede /native.
 La v0.1 mantiene gli ultimi scambi in memoria, senza salvare trascrizioni JARVIS.
-/btw, /debate, voce e sessioni native persistenti sono previsti nelle prossime versioni.`;
+/btw, /debate, TTS, wake word e sessioni native persistenti sono previsti nelle prossime versioni.`;
