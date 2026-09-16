@@ -30,7 +30,7 @@ jarvis[claude]> /codex Check the token refresh flow as well.
 jarvis[codex]> /review Review the latest commit for regressions.
 ```
 
-> **Early release.** The CLI includes live agent panels and macOS hold-Space push-to-talk. Speech output, custom wake words, and live conversation remain planned. See [current limitations](#current-limitations).
+> **Early release.** The CLI includes live agent panels, macOS hold-Space push-to-talk, and spoken responses through the system synthesizer. Custom wake words and live conversation remain planned. See [current limitations](#current-limitations).
 
 ## What you can do today
 
@@ -282,6 +282,8 @@ Automated tasks are read-only by default:
 | Codex | Native `read-only` sandbox |
 | Claude | `Read`, `Glob`, and `Grep` tools; MCP servers excluded |
 
+Voice is the deliberate write path: with `voice.allowEdits: true` (the default), JARVIS starts Codex in its workspace-write sandbox and starts Claude with `Read/Edit/Write` plus scoped local `git status/diff/add/commit` and test commands. Claude's voice allow-list does not include `git push`; provider sandbox and permission controls still apply. Set `voice.allowEdits: false` when spoken requests must remain read-only.
+
 Use `/native` for editing workflows that need interactive permission decisions. To authorize edits in automated requests, explicitly configure the provider:
 
 ```yaml
@@ -295,7 +297,7 @@ agents:
       permissionMode: acceptEdits
 ```
 
-These settings permit edits according to the provider's own controls. They do not enable a permission-bypass mode. Actions that would require a new interactive approval are denied in automated runs; use the native CLI to review and approve them. Review and synthesis stages remain read-only regardless of these settings.
+These settings permit edits for keyboard-driven automated requests according to each provider's own controls. They do not enable a permission-bypass mode. Actions that would require a new interactive approval are denied in automated runs. `/native` remains available for provider-native interactive commands; it is not needed for ordinary voice edits. Review and synthesis stages remain read-only regardless of these settings.
 
 ## Local-first, with clear boundaries
 
@@ -387,6 +389,8 @@ Contributions should keep the core provider-neutral, make failures visible, and 
 | **v0.3** | Turn-based voice, STT/TTS, push-to-talk, quiet mode, audio device selection | macOS push-to-talk/STT implemented; remaining features planned |
 | **v0.4** | Custom local wake words, aliases, sensitivity, cooldown, feedback suppression | Planned |
 | **v0.5** | Low-latency live conversation and interruption | Planned |
+
+Spoken responses through the macOS system synthesizer are already available ahead of the full v0.3 voice release.
 
 For detailed requirements and acceptance criteria, see the [product and technical specification](JARVIS_V01.md).
 
