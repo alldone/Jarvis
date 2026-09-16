@@ -24,7 +24,7 @@ export function claudeDecoder(): (event: WireEvent) => AgentEvent[] {
     if (event.type === 'result') {
       const result: AgentEvent[] = [];
       if (Array.isArray(event.permission_denials) && event.permission_denials.length) {
-        result.push({ type: 'approval', request: { description: 'Il provider ha negato strumenti che richiedono autorizzazione. Usa /native claude per approvarli.' } });
+        result.push({ type: 'approval', request: { description: 'Claude ha negato uno strumento. La voce abilita scrittura file e commit locali; controlla voice.allowEdits e i permessi del provider.' } });
       }
       if (event.is_error) result.push({ type: 'error', error: new Error(event.errors?.join('\n') || event.result || 'Errore Claude') });
       else {
@@ -45,15 +45,20 @@ export class ClaudeProvider implements AgentProvider {
   availability() { return findBinary(this.binary); }
   async isAvailable() { return (await this.availability()).available; }
   async startSession(context: ProjectContext) { return { id: randomUUID(), cwd: context.cwd }; }
-  private args(readOnly: boolean): string[] {
+  private args(readOnly: boolean, allowEdits = false): string[] {
     const args = ['--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
       '--permission-mode', readOnly ? 'dontAsk' : 'acceptEdits', '--permission-prompts', 'none'];
     if (readOnly) args.push('--tools', 'Read,Glob,Grep', '--strict-mcp-config');
+    else if (allowEdits) args.push('--allowedTools', 'Read', 'Edit', 'Write',
+      'Bash(git status)', 'Bash(git status *)', 'Bash(git diff)', 'Bash(git diff *)',
+      'Bash(git add *)', 'Bash(git commit)', 'Bash(git commit *)',
+      'Bash(npm test)', 'Bash(npm test *)', 'Bash(npm run test)', 'Bash(npm run test *)');
     if (this.config.model) args.push('--model', this.config.model);
     return args;
   }
   send(input: AgentInput): AsyncIterable<AgentEvent> {
-    return this.runner.run(this.binary, this.args(input.readOnly || (!input.allowEdits && this.config.permissionMode !== 'acceptEdits')),
+    const readOnly = input.readOnly || (!input.allowEdits && this.config.permissionMode !== 'acceptEdits');
+    return this.runner.run(this.binary, this.args(readOnly, Boolean(input.allowEdits && !input.readOnly)),
       input.context.cwd, buildPrompt(input), claudeDecoder());
   }
   passthrough(command: string, input: AgentInput): AsyncIterable<AgentEvent> {

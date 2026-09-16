@@ -216,9 +216,10 @@ test('provider commands select a persistent agent with or without an initial req
 test('voice reuses the selected agent; explicit spoken switches persist for both input modes', async t => {
   const { orchestrator } = await fixture(t);
   let voiceReadOnly: boolean | undefined;
+  let voiceAllowEdits: boolean | undefined;
   const claude = orchestrator.providers.get('claude')!;
   const send = claude.send.bind(claude);
-  claude.send = input => { voiceReadOnly = input.readOnly; return send(input); };
+  claude.send = input => { voiceReadOnly = input.readOnly; voiceAllowEdits = input.allowEdits; return send(input); };
   const events: string[] = [];
   const voice = new VoiceInputRouter(orchestrator, (_source, event) => {
     if (event.type === 'status') events.push(event.status);
@@ -226,6 +227,7 @@ test('voice reuses the selected agent; explicit spoken switches persist for both
   await orchestrator.use('claude');
   assert.match((await voice.accept({ text: 'Controlla il codice' }))!, /Claude/);
   assert.equal(voiceReadOnly, false);
+  assert.equal(voiceAllowEdits, true);
   assert.equal(orchestrator.active, 'claude');
   assert.match((await voice.accept({ text: 'Codex, controlla il codice' }))!, /Codex/);
   assert.equal(orchestrator.active, 'codex');
@@ -234,6 +236,30 @@ test('voice reuses the selected agent; explicit spoken switches persist for both
   assert.equal(orchestrator.active, 'claude');
   assert.match((await voice.accept({ text: 'Confronta Codex e Claude' }))!, /Claude/);
   assert.match(events.join('\n'), /Voce: Controlla il codice/);
+});
+
+test('voice edit mode gives Claude scoped file and local git tools', async t => {
+  const { cwd, orchestrator } = await fixture(t);
+  const log = resolve(cwd, 'provider-calls.jsonl');
+  const previous = process.env.JARVIS_TEST_LOG;
+  process.env.JARVIS_TEST_LOG = log;
+  t.after(() => {
+    if (previous === undefined) delete process.env.JARVIS_TEST_LOG;
+    else process.env.JARVIS_TEST_LOG = previous;
+  });
+  await orchestrator.use('claude');
+  const voice = new VoiceInputRouter(orchestrator, () => {});
+  await voice.accept({ text: 'Aggiungi Hello World in fondo al README e fai un commit locale' });
+  const calls = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { args: string[] });
+  const args = calls.at(-1)!.args;
+  const allowed = args.slice(args.indexOf('--allowedTools') + 1);
+  assert.ok(args.includes('--allowedTools'));
+  assert.ok(allowed.includes('Read'));
+  assert.ok(allowed.includes('Edit'));
+  assert.ok(allowed.includes('Write'));
+  assert.ok(allowed.includes('Bash(git add *)'));
+  assert.ok(allowed.includes('Bash(git commit *)'));
+  assert.ok(!allowed.some(tool => tool.includes('push')));
 });
 
 test('explicit selection never silently falls back to a different agent', async t => {

@@ -97,7 +97,11 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
         },
         speak: async text => {
           dashboard?.setVoice('Risposta vocale in riproduzione');
-          await speech!.speak(text);
+          try { await speech!.speak(text); }
+          catch (error) {
+            renderer.message(`Risposta vocale non disponibile: ${(error as Error).message}`);
+            dashboard?.setVoice('Risposta vocale non disponibile · testo mostrato');
+          }
         },
         stopSpeaking: () => speech?.stop(),
         settled() {

@@ -27,7 +27,10 @@ export function formatContext(context: ProjectContext): string {
 export function buildPrompt(input: import('../core/types.js').AgentInput): string {
   return [
     'You are working through JARVIS. Follow the user request and respond in their language.',
-    'Never commit, push, delete data, or perform sensitive external actions without explicit user authorization. If native approval is required, explain that the user must use /native.',
+    'Never commit, push, delete data, or perform sensitive external actions without explicit user authorization.',
+    input.allowEdits
+      ? 'This request is allowed to edit project files. Carry out ordinary requested edits directly; do not suggest /native for file editing. Keep commits local and never push unless the user explicitly asks.'
+      : 'If a requested capability is unavailable because of provider permissions, explain the missing permission clearly.',
     input.readOnly ? 'This is an independent read-only analysis. Do not change files or take external actions.' : '',
     `Project: ${input.context.name}\nWorking directory: ${input.context.cwd}`,
     formatContext(input.context),
