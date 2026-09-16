@@ -1,0 +1,18 @@
+{
+  "name": "jarvis-dev-orchestrator",
+  "version": "0.1.0",
+  "description": "Local-first terminal orchestrator for Codex and Claude Code",
+  "type": "module",
+  "private": true,
+  "bin": { "jarvis": "bin/jarvis.js" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli/main.ts",
+    "start": "node bin/jarvis.js",
+    "test": "tsx --test test/*.test.ts",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": { "yaml": "^2.8.1", "zod": "^4.1.5" },
+  "devDependencies": { "@types/node": "^22.18.0", "tsx": "^4.20.5", "typescript": "^5.9.2" }
+}
