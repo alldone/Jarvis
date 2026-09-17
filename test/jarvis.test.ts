@@ -13,6 +13,7 @@ import { Orchestrator } from '../src/core/orchestrator.js';
 import { claudeDecoder } from '../src/providers/agent/claude.js';
 import { decodeCodex } from '../src/providers/agent/codex.js';
 import { cdTarget } from '../src/shell/shell.js';
+import { npmShimTarget } from '../src/shell/command.js';
 import { clean, Renderer, supportsColor } from '../src/cli/renderer.js';
 import { Application } from '../src/cli/application.js';
 import { Writable } from 'node:stream';
@@ -24,8 +25,14 @@ async function fixture(t: test.TestContext) {
   const cwd = await mkdtemp(resolve(tmpdir(), 'jarvis-test-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const binary = resolve(cwd, 'provider');
-  await copyFile(resolve(root, 'test/fixtures/provider.cjs'), binary);
-  await chmod(binary, 0o755);
+  if (process.platform === 'win32') {
+    // Mirror an npm-installed Windows CLI: a .cmd shim in front of a JavaScript entry point.
+    await copyFile(resolve(root, 'test/fixtures/provider.cjs'), `${binary}.cjs`);
+    await writeFile(`${binary}.cmd`, '@node "%~dp0\\provider.cjs" %*\r\n');
+  } else {
+    await copyFile(resolve(root, 'test/fixtures/provider.cjs'), binary);
+    await chmod(binary, 0o755);
+  }
   const config = ConfigSchema.parse({ agents: { providers: { codex: { binary }, claude: { binary } } } });
   const events: { source: string; type: string }[] = [];
   const orchestrator = new Orchestrator(cwd, config, createProviders(config), (source, event) => events.push({ source, type: event.type }));
@@ -67,6 +74,12 @@ test('renderer colors only terminals and honours NO_COLOR', () => {
   assert.equal(output, '\x1b[33mCLAUDE ›\x1b[0m ciao\n');
 });
 
+test('Windows npm shims are unwrapped so multi-line arguments bypass cmd.exe', () => {
+  assert.equal(npmShimTarget('endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*'), 'node_modules\\@openai\\codex\\bin\\codex.js');
+  assert.equal(npmShimTarget('@node "%~dp0\\provider.cjs" %*'), 'provider.cjs');
+  assert.equal(npmShimTarget('@echo off\r\nprogram.exe %*'), undefined);
+});
+
 test('init is idempotent, config validates, context is scoped to its provider', async t => {
   const { cwd } = await fixture(t);
   assert.equal((await initProject(cwd)).length, 7);
@@ -84,7 +97,7 @@ test('init is idempotent, config validates, context is scoped to its provider', 
   await assert.rejects(loadConfig(cwd), /Configurazione non valida/);
 });
 
-test('symlinks and oversized context documents are rejected', async t => {
+test('symlinks and oversized context documents are rejected', { skip: process.platform === 'win32' && 'symlinks need elevated rights on Windows' }, async t => {
   const { cwd } = await fixture(t);
   await mkdir(resolve(cwd, '.jarvis'));
   await symlink(resolve(cwd, 'provider'), resolve(cwd, '.jarvis/context.md'));

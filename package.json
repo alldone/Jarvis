@@ -2,18 +2,61 @@
   "name": "jarvis-dev-orchestrator",
   "version": "0.1.0",
   "description": "Local-first terminal orchestrator for Codex and Claude Code",
+  "keywords": [
+    "cli",
+    "ai",
+    "coding-agent",
+    "codex",
+    "claude-code",
+    "voice",
+    "orchestrator"
+  ],
+  "homepage": "https://github.com/alldone/Jarvis#readme",
+  "bugs": {
+    "url": "https://github.com/alldone/Jarvis/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alldone/Jarvis.git"
+  },
+  "author": "Aldo Panetta",
   "type": "module",
-  "private": true,
-  "bin": { "jarvis": "bin/jarvis.js" },
-  "engines": { "node": ">=22" },
+  "bin": {
+    "jarvis": "bin/jarvis.js"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "!dist/**/*.map",
+    "!dist/**/*.d.ts",
+    "!dist/native/module-cache/",
+    "!dist/native/jarvis-voice-*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:voice": "node scripts/build-voice.mjs",
     "dev": "tsx src/cli/main.ts",
     "start": "node bin/jarvis.js",
     "test": "tsx --test test/*.test.ts",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "build:voice:universal": "node scripts/build-voice.mjs --universal",
+    "prepack": "npm run build"
   },
-  "dependencies": { "yaml": "^2.8.1", "zod": "^4.1.5" },
-  "devDependencies": { "@types/node": "^22.18.0", "tsx": "^4.20.5", "typescript": "^5.9.2" }
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "yaml": "^2.8.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
 }

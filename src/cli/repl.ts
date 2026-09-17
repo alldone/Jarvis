@@ -16,7 +16,8 @@ export type VoiceMode = 'off' | 'auto' | 'required';
 export async function runRepl(cwd: string, config: Config, yes = false, agent?: string, voiceMode: VoiceMode = config.voice.enabled ? 'auto' : 'off'): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (voiceMode === 'required' && !interactive) throw new Error('--voice richiede un terminale interattivo locale.');
-  const voiceEnabled = voiceMode !== 'off' && interactive;
+  // Voice is macOS-only today: elsewhere the default quietly means text mode; --voice still reports why.
+  const voiceEnabled = interactive && (voiceMode === 'required' || (voiceMode === 'auto' && process.platform === 'darwin'));
   const dashboard = interactive && process.env.TERM !== 'dumb' ? new Dashboard(process.stdout) : undefined;
   const renderer = new Renderer(process.stdout, dashboard);
   let inherited = false;

@@ -1,0 +1,73 @@
+name: Release
+
+# Push a tag matching the package version, e.g.:
+#   npm version patch && git push --follow-tags
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the GitHub Release
+  id-token: write   # npm provenance / trusted publishing
+
+jobs:
+  release:
+    # Apple Silicon runner: builds the universal (arm64 + x86_64) voice helper shipped in the package.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Check tag matches package.json
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match package.json version $version"; exit 1; }
+
+      - run: npm ci
+      - run: npm run check
+
+      - name: Build universal macOS voice helper
+        run: |
+          npm run build:voice:universal
+          archs="$(lipo -archs "dist/native/JARVIS Voice.app/Contents/MacOS/jarvis-voice")"
+          echo "Voice helper architectures: $archs"
+          [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+          codesign --verify "dist/native/JARVIS Voice.app"
+
+      - name: Pack
+        id: pack
+        run: |
+          mkdir -p release
+          npm pack --pack-destination release
+          cd release
+          shasum -a 256 *.tgz > SHA256SUMS
+          echo "tarball=$(ls *.tgz)" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test the tarball
+        run: |
+          npm install -g "release/${{ steps.pack.outputs.tarball }}"
+          jarvis --version
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease="--prerelease"
+          gh release create "$GITHUB_REF_NAME" release/* --title "JARVIS $GITHUB_REF_NAME" --generate-notes $prerelease
+
+      # Enabled by setting the repository variable NPM_PUBLISH=true.
+      # Auth: NPM_TOKEN secret, or npm trusted publishing (OIDC) configured on npmjs.com.
+      - name: Publish to npm
+        if: vars.NPM_PUBLISH == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm install -g npm@latest
+          tag="latest"
+          [[ "$GITHUB_REF_NAME" == *-* ]] && tag="next"
+          npm publish "release/${{ steps.pack.outputs.tarball }}" --provenance --access public --tag "$tag"

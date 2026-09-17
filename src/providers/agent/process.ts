@@ -1,17 +1,11 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { access } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { delimiter, isAbsolute, resolve } from 'node:path';
+import type { ChildProcess } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import type { AgentEvent, Availability } from '../../core/types.js';
+import { killTree, resolveExecutable, spawnCommand } from '../../shell/command.js';
 
 export async function findBinary(binary: string): Promise<Availability> {
-  const paths = isAbsolute(binary) || binary.includes('/')
-    ? [resolve(binary)]
-    : (process.env.PATH ?? '').split(delimiter).filter(Boolean).map(path => resolve(path, binary));
-  for (const path of paths) {
-    try { await access(path, constants.X_OK); return { available: true, detail: path }; } catch { /* next PATH entry */ }
-  }
+  const path = await resolveExecutable(binary);
+  if (path) return { available: true, detail: path };
   return { available: false, detail: `${binary} non trovato nel PATH; installa la CLI e completa il login nativo.` };
 }
 
@@ -25,7 +19,7 @@ export class ProcessRunner {
     decode: (event: WireEvent) => AgentEvent[]): AsyncGenerator<AgentEvent> {
     if (this.child) throw new Error('Il provider sta già lavorando.');
     this.stopped = false;
-    const child = spawn(binary, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    const child = await spawnCommand(binary, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
     this.child = child;
     let failure: Error | undefined;
     let stderr = '';
@@ -90,12 +84,7 @@ export class ProcessRunner {
     const child = this.child;
     if (!child || child.exitCode !== null || child.signalCode !== null) return;
     this.stopped = true;
-    const signal = (name: NodeJS.Signals) => {
-      try {
-        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, name);
-        else child.kill(name);
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
-    };
+    const signal = (name: NodeJS.Signals) => killTree(child, name);
     signal('SIGTERM');
     await new Promise<void>(resolveClose => {
       const timer = setTimeout(() => { signal('SIGKILL'); }, 1500);

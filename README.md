@@ -53,6 +53,30 @@ jarvis[codex]> /review Review the latest commit for regressions.
 
 Authenticate through the provider's own CLI before using JARVIS. JARVIS reuses that authentication; it does not ask for or store API keys.
 
+### Install
+
+One npm package works on every supported platform; the macOS voice helper is prebuilt as a universal binary inside it.
+
+| Platform | Text, agents, panels, shell | Push-to-talk and spoken answers |
+| --- | --- | --- |
+| macOS (Apple Silicon and Intel, 12+) | ✓ | ✓ (voice on by default, `--novoice` for silent mode) |
+| Linux | ✓ | Not yet — starts in text mode |
+| Windows 10/11 (PowerShell, Windows Terminal) | ✓ | Not yet — starts in text mode |
+
+From the npm registry:
+
+```bash
+npm install -g jarvis-dev-orchestrator
+```
+
+Or straight from a GitHub Release, without the npm registry (replace the version):
+
+```bash
+npm install -g https://github.com/alldone/Jarvis/releases/download/v0.1.0/jarvis-dev-orchestrator-0.1.0.tgz
+```
+
+Both install the `jarvis` command. Update with the same command; remove with `npm uninstall -g jarvis-dev-orchestrator`. On Windows, `! <command>` runs through `cmd.exe`, and npm-installed provider CLIs (`codex.cmd`, `claude.cmd`) are detected automatically.
+
 ### Install from source
 
 From your local checkout:
@@ -397,6 +421,23 @@ Tests use temporary workspaces and simulated provider executables. They exercise
 When changing an adapter, also verify its arguments against the installed provider's `--help`. The current Claude adapter uses `--permission-prompts`, verified against Claude Code **2.1.270**; older releases may require an update.
 
 Contributions should keep the core provider-neutral, make failures visible, and preserve native permission controls. Include focused tests for behavioral changes and update the documentation when user-facing behavior changes.
+
+## Releasing
+
+Releases are built by GitHub Actions. CI (`.github/workflows/ci.yml`) runs the test suite and installs the packed CLI on Linux, Windows, macOS Apple Silicon and macOS Intel with Node 22 and 24.
+
+```bash
+npm version patch        # or minor / major / prerelease --preid beta
+git push --follow-tags
+```
+
+The tag starts `.github/workflows/release.yml` on a macOS runner, which:
+
+1. checks that the tag matches `package.json`, then runs the tests;
+2. builds the universal (arm64 + x86_64) voice helper with `npm run build:voice:universal`;
+3. packs the npm tarball, writes `SHA256SUMS` and smoke-tests the install;
+4. creates the GitHub Release with the tarball attached (tags containing `-` are marked as pre-releases);
+5. publishes to npm only when the repository variable `NPM_PUBLISH` is `true`, using the `NPM_TOKEN` secret or npm trusted publishing, with provenance. Pre-releases go to the `next` dist-tag.
 
 ## Current limitations
 

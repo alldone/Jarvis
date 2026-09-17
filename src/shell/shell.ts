@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { spawnCommand } from './command.js';
 import { stat, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
@@ -19,13 +20,19 @@ export async function changeDirectory(cwd: string, path: string): Promise<string
 }
 
 export async function runInherited(binary: string, args: string[], cwd: string): Promise<number> {
+  const child = await spawnCommand(binary, args, { cwd, stdio: 'inherit' });
+  return waitFor(child);
+}
+
+function waitFor(child: ReturnType<typeof spawn>): Promise<number> {
   return new Promise((resolveCode, reject) => {
-    const child = spawn(binary, args, { cwd, stdio: 'inherit' });
     child.once('error', reject);
     child.once('close', code => resolveCode(code ?? 130));
   });
 }
 
 export function runShell(command: string, cwd: string): Promise<number> {
+  // Windows: Node runs the command through %ComSpec% (cmd.exe) with correct quoting.
+  if (process.platform === 'win32') return waitFor(spawn(command, { cwd, stdio: 'inherit', shell: true }));
   return runInherited(process.env.SHELL ?? '/bin/sh', ['-c', command], cwd);
 }
