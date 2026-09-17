@@ -3,8 +3,9 @@ import { addContext, formatContext, loadContext } from '../context/context.js';
 import { Orchestrator } from '../core/orchestrator.js';
 import { createProviders } from '../providers/agent/registry.js';
 import { cdTarget, changeDirectory, runInherited, runShell } from '../shell/shell.js';
-import { HELP, parseCommand } from './commands.js';
+import { HELP, parseCommand, suggestCommand } from './commands.js';
 import { Renderer } from './renderer.js';
+import { VERSION } from './version.js';
 
 export interface TerminalAccess {
   confirm(message: string): Promise<boolean>;
@@ -32,14 +33,22 @@ export class Application {
     for (const row of rows) this.renderer.message(`${row.id.padEnd(8)} ${row.available ? '✓' : '✗'} ${row.detail}`);
   }
   async banner(): Promise<void> {
-    this.renderer.message(`v0.1.0 · ${this.orchestrator.cwd}`);
+    this.renderer.message(`v${VERSION} · ${this.orchestrator.cwd}`);
     await this.agents();
     this.renderer.message(`Agente attivo: ${this.orchestrator.active}. /help per i comandi.`);
   }
 
   async execute(line: string): Promise<boolean> {
-    const command = parseCommand(line, new Set(['codex', 'claude', ...this.orchestrator.providers.keys()]));
+    const providerIds = new Set(['codex', 'claude', ...this.orchestrator.providers.keys()]);
+    const command = parseCommand(line, providerIds);
     if (command.kind === 'empty') return true;
+    if (command.kind === 'request' && !command.provider && command.text.startsWith('/')) {
+      const name = /^\/(\S+)/.exec(command.text)![1]!;
+      const suggestion = suggestCommand(name, providerIds);
+      if (suggestion) {
+        throw new Error(`Comando /${name} NON inviato: forse intendevi /${suggestion}? Per inoltrarlo comunque: /${this.orchestrator.active} ${command.text}`);
+      }
+    }
     if (command.kind === 'command' && command.name === 'cancel') {
       await this.orchestrator.interrupt();
       this.renderer.message('Interruzione richiesta.');
@@ -84,7 +93,8 @@ export class Application {
       }
       switch (command.name) {
         case 'use':
-          await orchestrator.use(command.args);
+          if (!command.args.trim()) throw new Error(`Uso: /use <agente>. Abilitati: ${[...orchestrator.providers.keys()].join(', ') || 'nessuno'}.`);
+          await orchestrator.use(command.args.trim());
           break;
         case 'agents': await this.agents(); break;
         case 'review': await orchestrator.review(command.args); break;

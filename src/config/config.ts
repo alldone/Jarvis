@@ -27,7 +27,7 @@ export const ConfigSchema = z.object({
   }).prefault({}),
   shell: z.object({ enabled: z.boolean().default(true), confirmDestructive: z.boolean().default(true) }).prefault({}),
   voice: z.object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
     allowEdits: z.boolean().default(true),
     language: z.object({ input: z.string().default('it-IT') }).passthrough().prefault({}),
     stt: z.object({ provider: z.literal('apple').default('apple'), localOnly: z.boolean().default(true) }).prefault({}),

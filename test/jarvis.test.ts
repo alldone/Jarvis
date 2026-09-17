@@ -7,13 +7,13 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ConfigSchema, initProject, loadConfig } from '../src/config/config.js';
 import { loadContext, buildPrompt } from '../src/context/context.js';
-import { parseCommand } from '../src/cli/commands.js';
+import { complete, parseCommand, suggestCommand } from '../src/cli/commands.js';
 import { createProviders } from '../src/providers/agent/registry.js';
 import { Orchestrator } from '../src/core/orchestrator.js';
 import { claudeDecoder } from '../src/providers/agent/claude.js';
 import { decodeCodex } from '../src/providers/agent/codex.js';
 import { cdTarget } from '../src/shell/shell.js';
-import { clean, Renderer } from '../src/cli/renderer.js';
+import { clean, Renderer, supportsColor } from '../src/cli/renderer.js';
 import { Application } from '../src/cli/application.js';
 import { Writable } from 'node:stream';
 import { VoiceInputRouter } from '../src/voice/input-router.js';
@@ -38,6 +38,33 @@ test('routing preserves provider-specific commands and arguments', () => {
   assert.deepEqual(parseCommand('/unknown hi', ['codex']), { kind: 'request', text: '/unknown hi' });
   assert.deepEqual(parseCommand('! git status', []), { kind: 'shell', text: 'git status' });
   assert.deepEqual(parseCommand('/review check this', []), { kind: 'command', name: 'review', args: 'check this' });
+});
+
+test('tab completion covers slash commands, agent names and context subcommands', () => {
+  assert.deepEqual(complete('/st', ['codex', 'claude']), [['/status'], '/st']);
+  assert.deepEqual(complete('/c', ['codex', 'claude']), [['/cancel', '/claude', '/clear', '/codex', '/context'], '/c']);
+  assert.deepEqual(complete('/use cl', ['codex', 'claude']), [['claude'], 'cl']);
+  assert.deepEqual(complete('/context r', []), [['refresh'], 'r']);
+  assert.deepEqual(complete('spiega il codice', ['codex']), [[], 'spiega il codice']);
+});
+
+test('typos of JARVIS commands are caught; genuine provider commands are not', () => {
+  assert.equal(suggestCommand('stauts', ['codex', 'claude']), 'status');
+  assert.equal(suggestCommand('cladue', ['codex', 'claude']), 'claude');
+  assert.equal(suggestCommand('revew', []), 'review');
+  assert.equal(suggestCommand('my-skill', ['codex', 'claude']), undefined);
+  assert.equal(suggestCommand('compact', ['codex', 'claude']), undefined);
+});
+
+test('renderer colors only terminals and honours NO_COLOR', () => {
+  const tty = Object.assign(new Writable({ write(_c, _e, cb) { cb(); } }), { isTTY: true });
+  assert.equal(supportsColor(tty, {}), true);
+  assert.equal(supportsColor(tty, { NO_COLOR: '1' }), false);
+  assert.equal(supportsColor(new Writable(), {}), false);
+  assert.equal(supportsColor(new Writable(), { FORCE_COLOR: '1' }), true);
+  let output = '';
+  new Renderer(new Writable({ write(chunk, _e, cb) { output += chunk; cb(); } }), undefined, true).message('ciao', 'claude');
+  assert.equal(output, '\x1b[33mCLAUDE ›\x1b[0m ciao\n');
 });
 
 test('init is idempotent, config validates, context is scoped to its provider', async t => {
@@ -193,6 +220,8 @@ test('application confirms shell commands and preserves cwd across requests', as
   await app.execute('/status');
   assert.equal(app.orchestrator.cwd, await realpath(other));
   await assert.rejects(app.execute('/btw additional information'), /NON inviata/);
+  await assert.rejects(app.execute('/stauts'), /forse intendevi \/status/);
+  await assert.rejects(app.execute('/use'), /Uso: \/use <agente>. Abilitati: codex, claude/);
 });
 
 test('provider commands select a persistent agent with or without an initial request', async t => {
@@ -275,7 +304,9 @@ test('built CLI starts outside its installation, accepts piped commands, and req
   const { cwd } = await fixture(t);
   const cli = resolve(root, 'bin/jarvis.js');
   const version = await exec(process.execPath, [cli, '--version'], { cwd });
-  assert.equal(version.stdout.trim(), '0.1.0');
+  const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')) as { version: string };
+  assert.equal(version.stdout.trim(), pkg.version);
+  await assert.rejects(exec(process.execPath, [cli, '--bogus'], { cwd }), /jarvis --help/);
   await exec(process.execPath, [cli, 'init'], { cwd });
   assert.equal((await loadConfig(cwd)).version, 1);
   const child = spawn(process.execPath, [cli], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -287,5 +318,37 @@ test('built CLI starts outside its installation, accepts piped commands, and req
   assert.match(output, /Stato: pronto/);
   assert.match(output, /comandi/);
   await assert.rejects(exec(process.execPath, [cli, '--voice'], { cwd }), /terminale interattivo/);
+  await assert.rejects(exec(process.execPath, [cli, '--voice', '--novoice'], { cwd }), /alternativi/);
+  assert.equal(ConfigSchema.parse({}).voice.enabled, true);
+  // Default voice falls back to text when there is no terminal; --novoice is always accepted.
+  for (const args of [[], ['--novoice']]) {
+    const piped = spawn(process.execPath, [cli, ...args], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    let text = '';
+    piped.stdout.on('data', chunk => { text += chunk; });
+    const code = new Promise(resolveCode => piped.once('close', resolveCode));
+    piped.stdin.end('/status\n/exit\n');
+    assert.equal(await code, 0);
+    assert.match(text, /Stato: pronto/);
+    assert.doesNotMatch(text, /Attivazione voce/);
+  }
   await assert.rejects(exec(process.execPath, [cli, '--live'], { cwd }), /Live mode non ancora/);
+});
+
+test('agents subcommand reports availability and run - reads the request from stdin', async t => {
+  const { cwd, binary } = await fixture(t);
+  const cli = resolve(root, 'bin/jarvis.js');
+  await mkdir(resolve(cwd, '.jarvis'));
+  await writeFile(resolve(cwd, '.jarvis/jarvis.yml'), `agents:\n  providers:\n    codex: { binary: ${JSON.stringify(binary)} }\n    claude: { binary: ${JSON.stringify(binary)} }\n`);
+  const agents = await exec(process.execPath, [cli, 'agents'], { cwd });
+  assert.match(agents.stdout, /codex\s+✓/);
+  await writeFile(resolve(cwd, '.jarvis/jarvis.yml'), 'agents:\n  providers:\n    codex: { binary: /nonexistent/jarvis-missing }\n');
+  await assert.rejects(exec(process.execPath, [cli, 'agents'], { cwd }), (error: { code: number; stdout: string }) => error.code === 1 && /codex\s+✗/.test(error.stdout));
+  await writeFile(resolve(cwd, '.jarvis/jarvis.yml'), `agents:\n  providers:\n    codex: { binary: ${JSON.stringify(binary)} }\n`);
+  const child = spawn(process.execPath, [cli, 'run', '-'], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  let output = '';
+  child.stdout.on('data', chunk => { output += chunk; });
+  const completed = new Promise(resolveCode => child.once('close', resolveCode));
+  child.stdin.end('Spiega questo diff');
+  assert.equal(await completed, 0);
+  assert.match(output, /Risultato Codex di prova/);
 });

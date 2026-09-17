@@ -29,7 +29,7 @@ export class Orchestrator {
 
   async requireProvider(id: string): Promise<AgentProvider> {
     const provider = this.providers.get(id);
-    if (!provider) throw new Error(`Provider non abilitato: ${id}. Usa /agents.`);
+    if (!provider) throw new Error(`Provider non abilitato: ${id}. Abilitati: ${[...this.providers.keys()].join(', ') || 'nessuno'}.`);
     const available = await provider.availability();
     if (!available.available) throw new Error(available.detail);
     return provider;

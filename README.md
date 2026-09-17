@@ -73,6 +73,13 @@ jarvis
 
 `jarvis init` is optional. It creates project context files without overwriting existing ones. JARVIS also starts in directories that are not Git repositories.
 
+Or skip the manual build steps: `scripts/jarvis.sh` installs dependencies, compiles TypeScript and (on macOS) the voice helper only when they are missing or out of date, then starts JARVIS in your current directory. Options are passed through, and `JARVIS_FORCE_BUILD=1` rebuilds everything:
+
+```bash
+cd /path/to/your-project
+/path/to/jarvis/scripts/jarvis.sh --agent claude
+```
+
 To run without installing the command globally, use these commands from the JARVIS checkout:
 
 ```bash
@@ -88,6 +95,13 @@ jarvis run --agent claude "Find gaps in the authentication tests"
 jarvis run --review "Review the latest commit for regressions"
 ```
 
+Pass `-` to read the request from standard input, and use `jarvis agents` to check provider executables from scripts (exit code 1 when none is ready):
+
+```bash
+git diff | jarvis run --review -
+jarvis agents
+```
+
 Use `--cwd /path/to/project` to set the working directory explicitly. `jarvis --help` lists the CLI options.
 
 ### Speak with push-to-talk (macOS)
@@ -96,9 +110,11 @@ Build the native helper once from the JARVIS checkout. This requires Xcode Comma
 
 ```bash
 npm run build:voice
-npm start -- --voice
+npm start
 # Or, after npm link:
-jarvis --voice --agent claude
+jarvis --agent claude
+# Silent mode, no microphone or spoken answers:
+jarvis --novoice
 ```
 
 Allow microphone and speech recognition access when macOS asks. Wait for the voice-ready message, then:
@@ -113,6 +129,17 @@ You do not need to name the selected agent again. “Codex, check the tests” e
 **Escape or Ctrl+C** cancels a recording. Losing application focus cancels it too; the maximum hold time is 45 seconds by default. Very short presses and low-confidence transcripts are not sent. Audio is streamed in memory and is not saved to disk. Voice requests can edit files by default, using the provider's workspace-write/accept-edits controls. Commits, pushes, deletions, and other destructive actions still require an explicit request.
 
 The native helper checks the physical Space key, so this mode requires a local macOS keyboard session and does not work over SSH. JARVIS also reads the completed response aloud through macOS's built-in `say` synthesizer while retaining the full answer on screen. Starting another recording or pressing Escape/Ctrl+C interrupts speech.
+
+### Continue a task with Claude
+
+Once Claude is selected, both typed and spoken requests stay on Claude until you explicitly switch agents. Voice editing is enabled by default, so ordinary file changes do not require `/native`:
+
+```text
+/claude
+Hold Space → “Add the requested change to the project and run the tests.”
+```
+
+For Claude voice sessions JARVIS enables file editing and a scoped set of local Git/test commands. A spoken request can explicitly ask for a local commit, for example “commit these changes locally”; `git push` is not included in the voice allow-list. Set `voice.allowEdits: false` in `.jarvis/jarvis.yml` to make spoken requests read-only.
 
 ## Usage
 
@@ -171,6 +198,8 @@ The final synthesis is instructed to distinguish confirmed findings, disagreemen
 | `! cd "path"` | Change the session's working directory |
 | `/help` | Show interactive help |
 | `/exit` | Exit JARVIS |
+
+**Tab** completes slash commands and agent names; **↑/↓** recall inputs from the current session (history is kept in memory only). A mistyped JARVIS command such as `/stauts` is not forwarded to the provider: JARVIS suggests the closest command, and `/<agent> /command` forwards it anyway. Output labels are colored on terminals; set `NO_COLOR=1` to disable.
 
 **Ctrl+C** cancels a running agent task; when idle, it exits JARVIS. While a task is running, `/status` and `/cancel` remain available. Other inputs are explicitly rejected so they are not silently lost.
 
@@ -252,7 +281,7 @@ shell:
   confirmDestructive: true
 
 voice:
-  enabled: false
+  enabled: true
   allowEdits: true
   language:
     input: it-IT
@@ -269,7 +298,7 @@ Each provider also accepts an optional `binary` path and `model` name. Models re
 
 `autoRouting: true` enables availability-based fallback when the default agent is missing. It does not perform semantic task routing, and it never overrides an explicit agent selection.
 
-`voice.enabled: true` enables push-to-talk without the `--voice` flag. Set `voice.language.input` to a locale such as `it-IT` or `en-US`; this Apple adapter maps `auto` to `it-IT` and does not yet detect languages automatically. Voice settings are read at startup; restart after changing them.
+Voice is on by default (`voice.enabled: true`). If it cannot start — helper not built, not macOS, SSH, missing permissions — JARVIS says why and continues in text mode. `--novoice` starts a silent session (no microphone, no spoken answers); `voice.enabled: false` makes that the project default. `--voice` makes voice mandatory and exits if it is unavailable. Set `voice.language.input` to a locale such as `it-IT` or `en-US`; this Apple adapter maps `auto` to `it-IT` and does not yet detect languages automatically. Voice settings are read at startup; restart after changing them.
 
 If on-device recognition is unavailable, enable or download the matching Dictation language in macOS settings. JARVIS fails visibly instead of silently sending audio to a cloud service. Setting `voice.stt.localOnly: false` explicitly allows Apple's network-based speech recognition; JARVIS announces this at startup. No OpenAI or Anthropic API key is needed for Apple transcription.
 

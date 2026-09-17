@@ -2,6 +2,7 @@ import { createInterface, type Interface } from 'node:readline';
 import type { Config } from '../config/config.js';
 import { Application, type TerminalAccess } from './application.js';
 import { Renderer, clean } from './renderer.js';
+import { complete } from './commands.js';
 import { Dashboard } from './dashboard.js';
 import { PushToTalk } from '../voice/push-to-talk.js';
 import { MacOSVoiceCapture } from '../voice/macos.js';
@@ -9,9 +10,13 @@ import { VoiceInputRouter } from '../voice/input-router.js';
 import { VoiceTerminalInput, classifyVoiceInput } from '../voice/terminal-input.js';
 import { MacOSSayOutput } from '../voice/speech-output.js';
 
-export async function runRepl(cwd: string, config: Config, yes = false, agent?: string, voiceEnabled = config.voice.enabled): Promise<void> {
+/** off: silent text mode · auto: voice when possible, text fallback · required: voice or exit. */
+export type VoiceMode = 'off' | 'auto' | 'required';
+
+export async function runRepl(cwd: string, config: Config, yes = false, agent?: string, voiceMode: VoiceMode = config.voice.enabled ? 'auto' : 'off'): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  if (voiceEnabled && !interactive) throw new Error('--voice richiede un terminale interattivo locale.');
+  if (voiceMode === 'required' && !interactive) throw new Error('--voice richiede un terminale interattivo locale.');
+  const voiceEnabled = voiceMode !== 'off' && interactive;
   const dashboard = interactive && process.env.TERM !== 'dumb' ? new Dashboard(process.stdout) : undefined;
   const renderer = new Renderer(process.stdout, dashboard);
   let inherited = false;
@@ -25,7 +30,12 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
     capturing: Boolean(voice && ['activating', 'listening', 'transcribing', 'starting', 'responding'].includes(voice.state)),
     empty: !rl.line.trim(), confirming: Boolean(confirmation),
   }), () => voice?.press(), () => voice?.cancel()) : process.stdin;
-  const rl: Interface = createInterface({ input, output: process.stdout, terminal: interactive, historySize: 0, prompt: 'jarvis> ' });
+  // History stays in memory only: JARVIS never writes typed input to disk.
+  const rl: Interface = createInterface({
+    input, output: process.stdout, terminal: interactive, prompt: 'jarvis> ',
+    historySize: interactive ? 200 : 0, removeHistoryDuplicates: true,
+    completer: interactive ? (line: string) => complete(line, app.orchestrator.providers.keys()) : undefined,
+  });
   rl.on('close', () => { closed = true; });
   const terminal: TerminalAccess = {
     interactive,
@@ -114,7 +124,12 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
         ? 'Voce con scrittura file abilitata · commit, push e azioni distruttive richiedono una richiesta esplicita.'
         : 'Voce in sola lettura · imposta voice.allowEdits: true per consentire modifiche ai file.');
       if (!config.voice.stt.localOnly) renderer.message('Trascrizione Apple online autorizzata dalla configurazione: l’audio può essere inviato ad Apple.');
-      await voice.start();
+      try { await voice.start(); }
+      catch (error) {
+        if (voiceMode === 'required') throw error;
+        renderer.message(`Voce non disponibile: ${(error as Error).message} Continuo in modalità testo (usa --novoice per non riprovare).`);
+        dashboard?.setVoice('Voce non disponibile · solo testo');
+      }
     }
     if (!interactive) {
       while (true) {
