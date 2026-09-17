@@ -49,7 +49,7 @@ jobs:
 
       - name: Smoke test the tarball
         run: |
-          npm install -g "release/${{ steps.pack.outputs.tarball }}"
+          npm install -g "./release/${{ steps.pack.outputs.tarball }}"
           jarvis --version
 
       - name: Create GitHub Release
@@ -70,4 +70,4 @@ jobs:
           npm install -g npm@latest
           tag="latest"
           [[ "$GITHUB_REF_NAME" == *-* ]] && tag="next"
-          npm publish "release/${{ steps.pack.outputs.tarball }}" --provenance --access public --tag "$tag"
+          npm publish "./release/${{ steps.pack.outputs.tarball }}" --provenance --access public --tag "$tag"
