@@ -4,10 +4,10 @@
 
 **One terminal. Multiple coding agents. Shared project context.**
 
-A local-first development orchestrator for Codex and Claude Code.<br>
+A local-first development orchestrator for Codex, Claude Code, and OpenCode.<br>
 Choose an agent, keep the conversation moving, and bring in a second perspective when you need one.
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+[![npm version](https://img.shields.io/npm/v/jarvis-dev-orchestrator)](https://www.npmjs.com/package/jarvis-dev-orchestrator)
 ![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Status](https://img.shields.io/badge/status-early%20development-orange)
@@ -74,7 +74,7 @@ npm install -g jarvis-dev-orchestrator
 Or straight from a GitHub Release, without the npm registry (replace the version):
 
 ```bash
-npm install -g https://github.com/alldone/Jarvis/releases/download/v0.1.0/jarvis-dev-orchestrator-0.1.0.tgz
+npm install -g https://github.com/alldone/Jarvis/releases/download/v0.2.1/jarvis-dev-orchestrator-0.2.1.tgz
 ```
 
 Both install the `jarvis` command. Update with the same command; remove with `npm uninstall -g jarvis-dev-orchestrator`. On Windows, `! <command>` runs through `cmd.exe`, and npm-installed provider CLIs (`codex.cmd`, `claude.cmd`) are detected automatically.

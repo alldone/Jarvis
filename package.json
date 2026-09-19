@@ -1,8 +1,8 @@
 {
   "name": "jarvis-dev-orchestrator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "SEE LICENSE IN LICENSE.md",
-  "description": "Local-first terminal orchestrator for Codex and Claude Code",
+  "description": "Local-first terminal orchestrator for Codex, Claude Code, and OpenCode",
   "keywords": [
     "cli",
     "ai",

@@ -56,6 +56,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Reusing existing release artifacts for $GITHUB_REF_NAME"
+            gh release download "$GITHUB_REF_NAME" --dir release --pattern '*.tgz' --pattern SHA256SUMS --clobber
+            (cd release && shasum -a 256 -c SHA256SUMS)
+            exit 0
+          fi
           prerelease=""
           [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease="--prerelease"
           gh release create "$GITHUB_REF_NAME" release/* --title "JARVIS $GITHUB_REF_NAME" --generate-notes $prerelease
