@@ -76,7 +76,7 @@ export class HistoryView {
     if (['q', '\x1b', '\x03'].includes(key)) { this.close(); return true; }
     const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(key);
     if (mouse) {
-      const button = Number(mouse[1]);
+      const button = Number(mouse[1]) & ~28; // Ignore Shift/Alt/Ctrl modifiers.
       if (button === 64) this.top -= 3;
       else if (button === 65) this.top += 3;
       else if (button === 0 && mouse[4] === 'M' && Number(mouse[2]) >= this.width + 1) {
@@ -113,6 +113,18 @@ export class HistoryView {
     this.output.write('\x1b[?1000l\x1b[?1006l\x1b[?25h');
     if (restore) this.onClose();
   }
+}
+
+/** Route wheel input even before the history view is open; never leak mouse reports into prompts. */
+export function navigateHistory(view: HistoryView, key: string, open: () => void): boolean {
+  if (view.handle(key)) return true;
+  const mouse = /^\x1b\[<(\d+);\d+;\d+([Mm])$/.exec(key);
+  if (key === '\x1b[5~' || (mouse && (Number(mouse[1]) & ~28) === 64 && mouse[2] === 'M')) {
+    open();
+    view.handle(mouse ? '\x1b[<64;1;1M' : key);
+    return true;
+  }
+  return Boolean(mouse);
 }
 
 /** Decode terminal sequences before readline, including sequences split across chunks. */

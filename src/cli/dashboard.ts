@@ -44,7 +44,7 @@ export class Dashboard {
   start(): void {
     if (this.enabled) return;
     this.enabled = true;
-    this.output.write('\x1b[?1049h\x1b[2J');
+    this.output.write('\x1b[?1049h\x1b[2J\x1b[?1000h\x1b[?1006h');
     this.output.on('resize', this.resizeHandler);
     this.layout();
     this.timer = setInterval(() => this.draw(), 125);
@@ -112,7 +112,7 @@ export class Dashboard {
     this.suspended = false;
     clearInterval(this.timer);
     this.output.removeListener('resize', this.resizeHandler);
-    this.output.write('\x1b[r\x1b[?1049l');
+    this.output.write('\x1b[?1000l\x1b[?1006l\x1b[r\x1b[?1049l');
   }
 
   pause(): void {
@@ -120,13 +120,14 @@ export class Dashboard {
     this.suspended = true;
     clearInterval(this.timer);
     this.output.removeListener('resize', this.resizeHandler);
-    this.output.write('\x1b7\x1b[r\x1b8');
+    this.output.write('\x1b[?1000l\x1b[?1006l\x1b7\x1b[r\x1b8');
   }
 
   resume(): void {
     if (!this.enabled) { this.start(); return; }
     if (!this.suspended) return;
     this.suspended = false;
+    this.output.write('\x1b[?1000h\x1b[?1006h');
     this.output.on('resize', this.resizeHandler);
     this.layout(true);
     this.timer = setInterval(() => this.draw(), 125);

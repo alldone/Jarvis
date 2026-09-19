@@ -9,7 +9,7 @@ import { MacOSVoiceCapture } from '../voice/macos.js';
 import { VoiceInputRouter } from '../voice/input-router.js';
 import { VoiceTerminalInput, classifyVoiceInput } from '../voice/terminal-input.js';
 import { MacOSSayOutput } from '../voice/speech-output.js';
-import { HistoryView, NavigationInput, wrapTranscript } from './history.js';
+import { HistoryView, NavigationInput, navigateHistory, wrapTranscript } from './history.js';
 import { Questions } from './questions.js';
 
 /** off: silent text mode · auto: voice when possible, text fallback · required: voice or exit. */
@@ -41,6 +41,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
   const renderer = new Renderer(process.stdout, dashboard);
   let inherited = false;
   let closed = false;
+  let historyReady = false;
   let confirmation: ((answer: boolean) => void) | undefined;
   let voice: PushToTalk | undefined;
   let speech: MacOSSayOutput | undefined;
@@ -54,7 +55,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
     if (!closed && !inherited) prompt(true);
   }) : undefined;
   const openHistory = () => {
-    if (!history || history.active || inherited || confirmation || questions.pending || voice?.busy) return;
+    if (!historyReady || !history || history.active || inherited || confirmation || questions.pending || voice?.busy) return;
     renderer.suspended = true;
     dashboard?.pause();
     history.open(renderer.transcript.text());
@@ -62,8 +63,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
   const navigation = dashboard ? new NavigationInput(process.stdin, key => {
     if (inherited) return false;
     if (questions.pending && (key === '\x1b' || key === '\x03')) { questions.cancel(); return true; }
-    if (history?.handle(key)) return true;
-    if (key === '\x1b[5~') { openHistory(); history?.handle(key); return true; }
+    if (history && navigateHistory(history, key, openHistory)) return true;
     return false;
   }) : undefined;
   const source = navigation ?? process.stdin;
@@ -142,7 +142,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
     if (agent) await app.orchestrator.use(agent);
     renderer.setActive(app.orchestrator.active);
     await app.banner();
-    if (history) renderer.message('Cronologia: Pagina su o /history · scrollbar, rotella e frecce · q/Esc per tornare.');
+    if (history) renderer.message('Cronologia: scorri verso l’alto con rotella/trackpad, oppure Pagina su o /history · q/Esc per tornare.');
     if (voiceEnabled) {
       const capture = new MacOSVoiceCapture({
         locale: config.voice.language.input === 'auto' ? 'it-IT' : config.voice.language.input,
@@ -183,6 +183,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
         dashboard?.setVoice('Voce non disponibile · solo testo');
       }
     }
+    historyReady = true;
     if (!interactive) {
       while (true) {
         const next = await lines!.next();

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough, Writable } from 'node:stream';
-import { HistoryView, NavigationInput, Transcript, wrapTranscript } from '../src/cli/history.js';
+import { HistoryView, NavigationInput, navigateHistory, Transcript, wrapTranscript } from '../src/cli/history.js';
 import { Renderer } from '../src/cli/renderer.js';
 import { Dashboard } from '../src/cli/dashboard.js';
 
@@ -46,6 +46,50 @@ test('history scrolls with pages, wheel and scrollbar, handles resize and restor
   assert.equal(view.active, false);
   assert.equal(stream.listenerCount('resize'), 0);
   assert.ok(output.endsWith('\x1b[?1000l\x1b[?1006l\x1b[?25h'));
+});
+
+test('wheel opens agent logs directly, consumes clicks and preserves new output on return', () => {
+  let output = '';
+  const stream = Object.assign(new Writable({ write(c, _e, done) { output += c; done(); } }), { columns: 80, rows: 24 });
+  const dashboard = new Dashboard(stream);
+  const renderer = new Renderer(stream, dashboard);
+  const view = new HistoryView(stream, () => {
+    renderer.suspended = false;
+    dashboard.restoreTranscript(wrapTranscript(renderer.transcript.text(), 79));
+  });
+  const open = () => {
+    renderer.suspended = true;
+    dashboard.pause();
+    view.open(renderer.transcript.text());
+  };
+  dashboard.start();
+  assert.ok(output.includes('\x1b[?1000h\x1b[?1006h'));
+  for (let i = 0; i < 80; i++) renderer.message(`log ${i}`, i % 2 ? 'codex' : 'JARVIS');
+  output = '';
+  assert.equal(navigateHistory(view, '\x1b[<64;20;12M', open), true);
+  assert.equal(view.active, true);
+  assert.match(output, /JARVIS › log/);
+  assert.match(output, /CODEX › log/);
+  assert.match(output, /█/);
+  output = '';
+  renderer.event('opencode', { type: 'text', text: 'new answer while scrolling' });
+  assert.equal(output, '');
+  navigateHistory(view, 'q', open);
+  assert.match(output, /OPENCODE › new answer while scrolling/);
+  assert.ok(output.includes('\x1b[?1000h\x1b[?1006h'));
+  assert.equal(navigateHistory(view, '\x1b[<0;20;12M', open), true);
+  assert.equal(navigateHistory(view, '\x1b[<65;20;12M', open), true);
+  assert.equal(view.active, false);
+  assert.equal(navigateHistory(view, 'a', open), false);
+  // A blocked history opener (e.g. during a confirmation) must still swallow mouse reports.
+  navigateHistory(view, '\x1b[<64;20;12M', () => {});
+  assert.equal(view.active, false);
+  output = ''; dashboard.pause();
+  assert.ok(output.includes('\x1b[?1000l\x1b[?1006l'));
+  output = ''; dashboard.resume();
+  assert.ok(output.includes('\x1b[?1000h\x1b[?1006h'));
+  output = ''; dashboard.stop();
+  assert.ok(output.includes('\x1b[?1000l\x1b[?1006l'));
 });
 
 test('navigation reassembles fragmented escape and Unicode input and preserves ordinary input', async () => {

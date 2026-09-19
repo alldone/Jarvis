@@ -74,7 +74,7 @@ npm install -g jarvis-dev-orchestrator
 Or straight from a GitHub Release, without the npm registry (replace the version):
 
 ```bash
-npm install -g https://github.com/alldone/Jarvis/releases/download/v0.2.1/jarvis-dev-orchestrator-0.2.1.tgz
+npm install -g https://github.com/alldone/Jarvis/releases/download/v0.2.2/jarvis-dev-orchestrator-0.2.2.tgz
 ```
 
 Both install the `jarvis` command. Update with the same command; remove with `npm uninstall -g jarvis-dev-orchestrator`. On Windows, `! <command>` runs through `cmd.exe`, and npm-installed provider CLIs (`codex.cmd`, `claude.cmd`) are detected automatically.
@@ -188,7 +188,7 @@ The first agent's panel appears in the upper-right corner. When a second agent s
 
 The transcript and command prompt scroll below the panels. On narrow terminals, the running agent takes priority in a single compact panel; very small terminals omit the panels. Shell commands and native CLIs temporarily receive the full terminal, and JARVIS restores its layout when they return. Non-interactive output stays plain text.
 
-Press **Page Up** (Fn+↑ on Mac keyboards) or enter `/history` to read earlier output in a full-screen viewer with a clickable scrollbar. Use ↑/↓, Page Up/Page Down, Home/End or the mouse wheel; **q**, **Escape** or **Ctrl+C** returns to the prompt and preserves any unfinished input. The viewer holds a stable snapshot while agents continue working; returning restores the latest output and panels. The transcript retains up to two million characters, including typed requests and agent output, and is saved with the project session by default. Output from inherited shell commands and native CLI sessions is not captured. `/clear` resets model conversation context, not the visible transcript.
+Scroll up with the **mouse wheel or trackpad** to read earlier JARVIS and agent output directly, without first entering a command. **Page Up** (Fn+↑ on Mac keyboards) or `/history` also opens the full-screen viewer with a clickable scrollbar. Use ↑/↓, Page Up/Page Down, Home/End or the mouse wheel; **q**, **Escape** or **Ctrl+C** returns to the prompt and preserves any unfinished input. The viewer holds a stable snapshot while agents continue working; returning restores the latest output and panels. Mouse reporting must be enabled in your terminal; its outer scrollbar belongs to the shell, not this full-screen viewer. The transcript retains up to two million characters, including typed requests and agent output, and is saved with the project session by default. Output from inherited shell commands and native CLI sessions is not captured. `/clear` resets model conversation context, not the visible transcript.
 
 ### Cross-agent review
 
