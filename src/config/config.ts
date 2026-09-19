@@ -17,7 +17,7 @@ export const ConfigSchema = z.object({
     default: z.string().min(1).default('codex'),
     autoRouting: z.boolean().default(false),
     providers: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), provider).default({
-      codex: provider.parse({}), claude: provider.parse({}),
+      codex: provider.parse({}), claude: provider.parse({}), opencode: provider.parse({}),
     }),
   }).prefault({}),
   orchestration: z.object({
@@ -26,6 +26,7 @@ export const ConfigSchema = z.object({
     autoReview: z.boolean().default(false),
   }).prefault({}),
   shell: z.object({ enabled: z.boolean().default(true), confirmDestructive: z.boolean().default(true) }).prefault({}),
+  sessions: z.object({ enabled: z.boolean().default(true), autoResume: z.boolean().default(true) }).prefault({}),
   voice: z.object({
     enabled: z.boolean().default(true),
     allowEdits: z.boolean().default(true),
@@ -63,6 +64,7 @@ export async function initProject(cwd: string): Promise<string[]> {
     'decisions.md': '# Decisioni tecniche\n',
     'agents/codex.md': '# Istruzioni per Codex\n',
     'agents/claude.md': '# Istruzioni per Claude\n',
+    'agents/opencode.md': '# Istruzioni per OpenCode\n',
     '.gitignore': 'sessions/\ncache/\naudio/\n',
   };
   const created: string[] = [];

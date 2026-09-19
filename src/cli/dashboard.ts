@@ -66,8 +66,8 @@ export class Dashboard {
   frames(): { source: string; column: number; lines: string[] }[] {
     const columns = this.output.columns ?? 80;
     if ((this.output.rows ?? 24) < 14 || columns < 40) return [];
-    let entries: [string, Row | undefined][] = this.rows.size ? [...this.rows].slice(-2) : [[this.active, undefined]];
-    if (columns < 76 && entries.length > 1) {
+    let entries: [string, Row | undefined][] = this.rows.size ? [...this.rows] : [[this.active, undefined]];
+    if (columns < entries.length * 38 && entries.length > 1) {
       entries = [entries.find(([id, row]) => id === this.active && row?.state === 'running')
         ?? entries.find(([, row]) => row?.state === 'running') ?? entries.find(([id]) => id === this.active) ?? entries[0]!];
     }
@@ -101,7 +101,7 @@ export class Dashboard {
     // DEC save/restore preserves the input cursor while the header updates.
     const cleared = Array.from({ length: this.header }, (_, index) => `\x1b[${index + 1};1H\x1b[2K`).join('');
     this.output.write('\x1b7' + cleared + frames.map(frame => {
-      const color = frame.source === 'codex' ? '\x1b[36m' : '\x1b[33m';
+      const color = frame.source === 'codex' ? '\x1b[36m' : frame.source === 'opencode' ? '\x1b[32m' : '\x1b[33m';
       return frame.lines.map((line, index) => `\x1b[${index + 1};${frame.column}H${color}${line}\x1b[0m`).join('');
     }).join('') + '\x1b8');
   }
@@ -131,5 +131,13 @@ export class Dashboard {
     this.layout(true);
     this.timer = setInterval(() => this.draw(), 125);
     this.timer.unref();
+  }
+
+  restoreTranscript(lines: string[]): void {
+    this.output.write('\x1b[r\x1b[2J\x1b[H');
+    this.resume();
+    this.layout();
+    const available = Math.max(1, (this.output.rows ?? 24) - ((this.output.rows ?? 24) >= 14 ? this.header : 0) - 1);
+    this.output.write(lines.slice(-available).join('\r\n') + '\r\n');
   }
 }

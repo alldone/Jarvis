@@ -9,9 +9,28 @@ import { MacOSVoiceCapture } from '../voice/macos.js';
 import { VoiceInputRouter } from '../voice/input-router.js';
 import { VoiceTerminalInput, classifyVoiceInput } from '../voice/terminal-input.js';
 import { MacOSSayOutput } from '../voice/speech-output.js';
+import { HistoryView, NavigationInput, wrapTranscript } from './history.js';
+import { Questions } from './questions.js';
 
 /** off: silent text mode · auto: voice when possible, text fallback · required: voice or exit. */
 export type VoiceMode = 'off' | 'auto' | 'required';
+
+async function askWorkspaceTrust(config: Config, cwd: string, rl: Interface, renderer: Renderer, interactive: boolean, autoApprove: boolean): Promise<void> {
+  if (!interactive) return;
+  const answer = autoApprove ? 's' : await new Promise<string>(resolve => {
+    rl.question(`Autorizzi Jarvis a scrivere nella cartella corrente?\n  ${cwd}\n[s/N] `, resolve);
+  });
+  const trusted = /^(s|si|sì|y|yes)$/i.test(answer.trim());
+  if (trusted) {
+    for (const settings of Object.values(config.agents.providers)) {
+      settings.sandbox = 'workspace-write';
+      settings.permissionMode = 'acceptEdits';
+    }
+    renderer.message('Cartella autorizzata: agenti in modalità read-write per questa sessione.');
+  } else {
+    renderer.message('Cartella non autorizzata: agenti in sola lettura.');
+  }
+}
 
 export async function runRepl(cwd: string, config: Config, yes = false, agent?: string, voiceMode: VoiceMode = config.voice.enabled ? 'auto' : 'off'): Promise<void> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
@@ -25,13 +44,36 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
   let confirmation: ((answer: boolean) => void) | undefined;
   let voice: PushToTalk | undefined;
   let speech: MacOSSayOutput | undefined;
-  const input: VoiceTerminalInput | NodeJS.ReadStream = voiceEnabled ? new VoiceTerminalInput(process.stdin, text => classifyVoiceInput(text, {
+  const questions = new Questions(text => renderer.message(text), () => {
+    rl.setPrompt('risposta> '); rl.prompt();
+  });
+  const history = dashboard ? new HistoryView(process.stdout, () => {
+    renderer.suspended = false;
+    const lines = wrapTranscript(renderer.transcript.text().trimEnd(), Math.max(2, (process.stdout.columns ?? 80) - 1));
+    dashboard.restoreTranscript(lines);
+    if (!closed && !inherited) prompt(true);
+  }) : undefined;
+  const openHistory = () => {
+    if (!history || history.active || inherited || confirmation || questions.pending || voice?.busy) return;
+    renderer.suspended = true;
+    dashboard?.pause();
+    history.open(renderer.transcript.text());
+  };
+  const navigation = dashboard ? new NavigationInput(process.stdin, key => {
+    if (inherited) return false;
+    if (questions.pending && (key === '\x1b' || key === '\x03')) { questions.cancel(); return true; }
+    if (history?.handle(key)) return true;
+    if (key === '\x1b[5~') { openHistory(); history?.handle(key); return true; }
+    return false;
+  }) : undefined;
+  const source = navigation ?? process.stdin;
+  const input = voiceEnabled ? new VoiceTerminalInput(source, text => classifyVoiceInput(text, {
     enabled: !inherited && voice?.state !== 'closed',
     busy: app.busy || Boolean(voice?.busy),
     capturing: Boolean(voice && ['activating', 'listening', 'transcribing', 'starting', 'responding'].includes(voice.state)),
-    empty: !rl.line.trim(), confirming: Boolean(confirmation),
-  }), () => voice?.press(), () => voice?.cancel()) : process.stdin;
-  // History stays in memory only: JARVIS never writes typed input to disk.
+    empty: !rl.line.trim(), confirming: Boolean(confirmation) || questions.pending,
+  }), () => voice?.press(), () => voice?.cancel()) : source;
+  // Readline's recall list stays in memory; project session persistence is separate.
   const rl: Interface = createInterface({
     input, output: process.stdout, terminal: interactive, prompt: 'jarvis> ',
     historySize: interactive ? 200 : 0, removeHistoryDuplicates: true,
@@ -40,6 +82,8 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
   rl.on('close', () => { closed = true; });
   const terminal: TerminalAccess = {
     interactive,
+    history: history ? openHistory : undefined,
+    ask: interactive ? (question, options) => questions.ask(question, options) : undefined,
     async confirm(message) {
       if (yes) return true;
       if (!interactive) throw new Error('Conferma shell richiesta: usa un terminale oppure --yes per autorizzare esplicitamente.');
@@ -65,13 +109,16 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
     },
   };
   const app = new Application(cwd, config, renderer, terminal);
-  const prompt = () => {
+  const prompt = (preserveCursor = false) => {
+    if (history?.active || questions.pending) return;
     rl.setPrompt(`jarvis[${clean(app.orchestrator.active)}]> `);
     renderer.setActive(app.orchestrator.active);
-    rl.prompt();
+    rl.prompt(preserveCursor);
   };
   const interrupt = () => {
     if (inherited) return;
+    if (questions.pending) { questions.cancel(); return; }
+    if (history?.active) { history.close(); return; }
     if (voice?.state === 'starting') { void voice.close(); rl.close(); return; }
     if (voice?.busy && voice.state !== 'routing') { voice.cancel(); return; }
     if (confirmation) { const resolve = confirmation; confirmation = undefined; resolve(false); return; }
@@ -90,9 +137,12 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
     // Register the iterator before asynchronous startup so piped input isn't lost.
     const lines = interactive ? undefined : rl[Symbol.asyncIterator]();
     dashboard?.start();
+    await askWorkspaceTrust(config, cwd, rl, renderer, interactive, yes);
+    await app.initialize();
     if (agent) await app.orchestrator.use(agent);
     renderer.setActive(app.orchestrator.active);
     await app.banner();
+    if (history) renderer.message('Cronologia: Pagina su o /history · scrollbar, rotella e frecce · q/Esc per tornare.');
     if (voiceEnabled) {
       const capture = new MacOSVoiceCapture({
         locale: config.voice.language.input === 'auto' ? 'it-IT' : config.voice.language.input,
@@ -104,7 +154,8 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
         message(text) { dashboard?.setVoice(text); renderer.message(text); },
         async receive(transcript) {
           const router = new VoiceInputRouter(app.orchestrator, (source, event) => renderer.event(source, event));
-          return router.accept(transcript);
+          try { return await router.accept(transcript); }
+          finally { await app.saveSession(); }
         },
         speak: async text => {
           dashboard?.setVoice('Risposta vocale in riproduzione');
@@ -142,6 +193,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
       await new Promise<void>(resolve => {
         const tasks = new Set<Promise<void>>();
         rl.on('line', line => {
+          if (questions.accept(line)) return;
           if (confirmation) {
             const answer = confirmation; confirmation = undefined;
             answer(/^(s|si|sì|y|yes)$/i.test(line.trim()));
@@ -158,6 +210,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
           closed = true;
           confirmation?.(false);
           confirmation = undefined;
+          questions.cancel();
           void app.orchestrator.close().then(() => voice?.close()).then(() => speech?.close()).then(() => Promise.allSettled(tasks)).finally(resolve);
         });
         prompt();
@@ -165,6 +218,7 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
     }
   } finally {
     closed = true;
+    questions.cancel();
     rl.close();
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', terminate);
@@ -172,6 +226,9 @@ export async function runRepl(cwd: string, config: Config, yes = false, agent?: 
     await voice?.close();
     await speech?.close();
     if (input instanceof VoiceTerminalInput) input.detach();
+    navigation?.detach();
+    history?.close(false);
     dashboard?.stop();
+    await app.saveSession();
   }
 }

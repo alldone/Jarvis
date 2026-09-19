@@ -4,21 +4,25 @@ import { realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { initProject, loadConfig } from '../config/config.js';
 import { Application } from './application.js';
-import { Renderer } from './renderer.js';
+import { Renderer, clean } from './renderer.js';
 import { runRepl } from './repl.js';
 import { VERSION } from './version.js';
+import { SessionManager } from '../core/session-manager.js';
 
 const USAGE = `JARVIS v${VERSION} — orchestratore locale per Codex e Claude
 
   jarvis                         Terminale interattivo
   jarvis init                    Crea .jarvis/ senza sovrascrivere file
   jarvis agents                  Verifica le CLI dei provider (exit 1 se nessuna è pronta)
+  jarvis sessions                Elenca le sessioni salvate nella cartella
   jarvis run "richiesta"          Esegue una richiesta e termina
   jarvis run --review "richiesta" Task + review indipendente + sintesi
+  jarvis run --debate "richiesta" Analisi indipendenti + sintesi in sola lettura
   jarvis run - < file             Legge la richiesta da stdin (es. git diff | jarvis run -)
 
   --cwd <directory>              Directory di lavoro (default: corrente)
   --agent <nome>                 Agente iniziale
+  --agents <nomi,separati>       Partecipanti per run --debate (default: due)
   --yes                          Autorizza i comandi ! senza conferma
   --novoice                      Modalità silenziosa: niente microfono né risposte vocali
   --voice                        Voce obbligatoria: errore se non disponibile
@@ -39,28 +43,36 @@ async function readStdin(): Promise<string> {
 async function main(): Promise<void> {
   const { values, positionals } = parseArgs({
     options: {
-      cwd: { type: 'string' }, agent: { type: 'string' }, yes: { type: 'boolean', default: false },
-      review: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' },
+      cwd: { type: 'string' }, agent: { type: 'string' }, agents: { type: 'string' }, yes: { type: 'boolean', default: false },
+      review: { type: 'boolean', default: false }, debate: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' }, voice: { type: 'boolean' }, novoice: { type: 'boolean' }, live: { type: 'boolean' },
     }, allowPositionals: true,
   });
   if (values.help || positionals[0] === 'help') { console.log(USAGE); return; }
   if (values.version) { console.log(VERSION); return; }
+  if (values.review && values.debate) throw new Error('--review e --debate sono alternativi.');
   if (values.live) throw new Error('Live mode non ancora disponibile. Usa --voice per il push-to-talk.');
   const cwd = await realpath(resolve(values.cwd ?? process.cwd()));
   if (!(await stat(cwd)).isDirectory()) throw new Error(`Non è una directory: ${cwd}`);
   const [command, ...rest] = positionals;
+  if (values.agents && (command !== 'run' || !values.debate)) throw new Error('--agents richiede jarvis run --debate.');
   if (values.voice && values.novoice) throw new Error('--voice e --novoice sono alternativi.');
   if (values.voice && command) throw new Error('--voice è disponibile nel REPL: jarvis --voice [--agent <nome>].');
   if (command === 'init') {
-    if (rest.length || values.review) throw new Error('Uso: jarvis init [--cwd <directory>]');
+    if (rest.length || values.review || values.debate) throw new Error('Uso: jarvis init [--cwd <directory>]');
     const created = await initProject(cwd);
     console.log(`JARVIS › ${created.length ? `Creati ${created.length} file in ${cwd}/.jarvis/` : 'Contesto già inizializzato; nessun file sovrascritto.'}`);
     return;
   }
   const config = await loadConfig(cwd);
+  if (command === 'sessions') {
+    if (rest.length || values.review || values.debate) throw new Error('Uso: jarvis sessions [--cwd <directory>]');
+    const sessions = await new SessionManager(cwd).list();
+    console.log(sessions.length ? sessions.map(s => `${s.id.slice(0, 8)} · ${clean(s.title)} · ${s.updatedAt}`).join('\n') : 'Nessuna sessione salvata in questa cartella.');
+    return;
+  }
   if (command === 'agents') {
-    if (rest.length || values.review) throw new Error('Uso: jarvis agents [--cwd <directory>]');
+    if (rest.length || values.review || values.debate) throw new Error('Uso: jarvis agents [--cwd <directory>]');
     const app = new Application(cwd, config, new Renderer(), { interactive: false, confirm: async () => false, inherit: task => task() });
     try {
       await app.agents();
@@ -69,7 +81,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command === 'run') {
-    if (!rest.length) throw new Error('Uso: jarvis run [--review] [--agent <nome>] "richiesta" | -');
+    if (!rest.length) throw new Error('Uso: jarvis run [--review|--debate] [--agent <nome>] "richiesta" | -');
     const request = rest.length === 1 && rest[0] === '-' ? await readStdin() : rest.join(' ');
     if (!request.trim()) throw new Error('Richiesta vuota: nessun input ricevuto.');
     const renderer = new Renderer();
@@ -81,17 +93,21 @@ async function main(): Promise<void> {
     process.on('SIGINT', interrupt);
     process.on('SIGTERM', interrupt);
     try {
+      await app.initialize();
+      renderer.transcript.append(`TU › ${clean(request)}\n`);
       if (values.agent) await app.orchestrator.use(values.agent);
       if (values.review) await app.orchestrator.review(request);
+      else if (values.debate) await app.orchestrator.debate(request, values.agents?.split(','));
       else await app.orchestrator.run(request);
     } finally {
       process.removeListener('SIGINT', interrupt);
       process.removeListener('SIGTERM', interrupt);
       await app.orchestrator.close();
+      await app.saveSession();
     }
     return;
   }
-  if (command || values.review) throw new Error(`Comando non valido.\n${USAGE}`);
+  if (command || values.review || values.debate) throw new Error(`Comando non valido.\n${USAGE}`);
   const voice = values.novoice ? 'off' : values.voice ? 'required' : config.voice.enabled ? 'auto' : 'off';
   await runRepl(cwd, config, values.yes, values.agent, voice);
 }

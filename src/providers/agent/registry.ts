@@ -2,9 +2,10 @@ import type { Config } from '../../config/config.js';
 import type { AgentProvider } from '../../core/types.js';
 import { CodexProvider } from './codex.js';
 import { ClaudeProvider } from './claude.js';
+import { OpenCodeProvider } from './opencode.js';
 
 export function createProviders(config: Config): Map<string, AgentProvider> {
-  const factories = { codex: CodexProvider, claude: ClaudeProvider };
+  const factories = { codex: CodexProvider, claude: ClaudeProvider, opencode: OpenCodeProvider };
   const providers = new Map<string, AgentProvider>();
   for (const [id, settings] of Object.entries(config.agents.providers)) {
     if (!settings.enabled) continue;

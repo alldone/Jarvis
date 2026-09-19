@@ -16,10 +16,10 @@ export class ProcessRunner {
   private stopped = false;
 
   async *run(binary: string, args: string[], cwd: string, input: string,
-    decode: (event: WireEvent) => AgentEvent[]): AsyncGenerator<AgentEvent> {
+    decode: (event: WireEvent) => AgentEvent[], env?: NodeJS.ProcessEnv): AsyncGenerator<AgentEvent> {
     if (this.child) throw new Error('Il provider sta già lavorando.');
     this.stopped = false;
-    const child = await spawnCommand(binary, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
+    const child = await spawnCommand(binary, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
     this.child = child;
     let failure: Error | undefined;
     let stderr = '';

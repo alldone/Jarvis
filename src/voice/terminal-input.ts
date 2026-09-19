@@ -18,7 +18,7 @@ export function classifyVoiceInput(text: string, state: InputState): 'pass' | 's
 /** Filter before readline so voice activation never inserts spaces into the prompt. */
 export class VoiceTerminalInput extends PassThrough {
   readonly isTTY: boolean;
-  constructor(private source: NodeJS.ReadStream, private classify: (text: string) => ReturnType<typeof classifyVoiceInput>, private onSpace: () => void, private onCancel: () => void) {
+  constructor(private source: NodeJS.ReadableStream & { isTTY?: boolean; setRawMode(mode: boolean): unknown }, private classify: (text: string) => ReturnType<typeof classifyVoiceInput>, private onSpace: () => void, private onCancel: () => void) {
     super();
     this.isTTY = Boolean(source.isTTY);
     source.on('data', this.data);

@@ -1,9 +1,10 @@
 import { stripVTControlCharacters } from 'node:util';
 import type { AgentEvent } from '../core/types.js';
 import type { Dashboard } from './dashboard.js';
+import { Transcript } from './history.js';
 
 export const clean = (text: string): string => stripVTControlCharacters(text).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
-const COLORS: Record<string, string> = { JARVIS: '\x1b[1;35m', CODEX: '\x1b[36m', CLAUDE: '\x1b[33m' };
+const COLORS: Record<string, string> = { JARVIS: '\x1b[1;35m', CODEX: '\x1b[36m', CLAUDE: '\x1b[33m', OPENCODE: '\x1b[32m' };
 
 /** Colors only real terminals, honouring the NO_COLOR and FORCE_COLOR conventions. */
 export function supportsColor(output: NodeJS.WritableStream, env = process.env): boolean {
@@ -13,6 +14,8 @@ export function supportsColor(output: NodeJS.WritableStream, env = process.env):
 }
 
 export class Renderer {
+  readonly transcript = new Transcript();
+  suspended = false;
   private color: boolean;
   constructor(private output: NodeJS.WritableStream = process.stdout, private dashboard?: Dashboard, color = supportsColor(output)) {
     this.color = color;
@@ -21,7 +24,8 @@ export class Renderer {
   message(text: string, source = 'JARVIS'): void {
     const label = clean(source.toUpperCase());
     const prefix = this.color ? `${COLORS[label] ?? '\x1b[1m'}${label} ›\x1b[0m` : `${label} ›`;
-    this.output.write(`${prefix} ${clean(text)}\n`);
+    this.transcript.append(`${label} › ${clean(text)}\n`);
+    if (!this.suspended) this.output.write(`${prefix} ${clean(text)}\n`);
   }
   event(source: string, event: AgentEvent): void {
     this.dashboard?.event(source, event);

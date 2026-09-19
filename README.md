@@ -11,8 +11,9 @@ Choose an agent, keep the conversation moving, and bring in a second perspective
 ![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Status](https://img.shields.io/badge/status-early%20development-orange)
+![License](https://img.shields.io/badge/license-PolyForm%20Small%20Business%201.0.0-purple)
 
-[Quick start](#quick-start) · [Usage](#usage) · [Configuration](#configuration) · [Architecture](#architecture) · [Roadmap](#roadmap)
+[Quick start](#quick-start) · [Usage](#usage) · [Configuration](#configuration) · [Architecture](#architecture) · [Roadmap](#roadmap) · [License](#license)
 
 </div>
 
@@ -34,7 +35,8 @@ jarvis[codex]> /review Review the latest commit for regressions.
 
 ## What you can do today
 
-- **Switch agents without switching terminals.** Use `/codex`, `/claude`, or `/use`; the prompt shows the active agent and each request announces its recipient.
+- **Switch agents without switching terminals.** Use `/codex`, `/claude`, `/opencode`, or `/use`; the prompt shows the active agent and each request announces its recipient.
+- **Resume work by project.** Sessions save recent conversation and transcript in the working directory; `/sessions` lists them and `/session` manages them.
 - **Get a second review.** `/review` runs the primary task, asks another agent to inspect the result, and produces a final synthesis.
 - **Keep project instructions together.** Store shared context and provider-specific guidance in versionable `.jarvis/` files.
 - **Keep native tools accessible.** `/native` opens the original CLI with its interactive commands and approval flow, then returns you to JARVIS.
@@ -48,8 +50,8 @@ jarvis[codex]> /review Review the latest commit for regressions.
 ### Prerequisites
 
 - **Node.js 22 or later** and npm.
-- At least one supported CLI installed and authenticated: [Codex](https://developers.openai.com/codex/cli) or [Claude Code](https://code.claude.com/docs/en/overview).
-- Both CLIs for cross-agent review.
+- At least one supported CLI installed and authenticated: [Codex](https://developers.openai.com/codex/cli), [Claude Code](https://code.claude.com/docs/en/overview), or [OpenCode](https://opencode.ai/docs/cli/).
+- At least two available CLIs for cross-agent review or debate.
 
 Authenticate through the provider's own CLI before using JARVIS. JARVIS reuses that authentication; it does not ask for or store API keys.
 
@@ -186,6 +188,8 @@ The first agent's panel appears in the upper-right corner. When a second agent s
 
 The transcript and command prompt scroll below the panels. On narrow terminals, the running agent takes priority in a single compact panel; very small terminals omit the panels. Shell commands and native CLIs temporarily receive the full terminal, and JARVIS restores its layout when they return. Non-interactive output stays plain text.
 
+Press **Page Up** (Fn+↑ on Mac keyboards) or enter `/history` to read earlier output in a full-screen viewer with a clickable scrollbar. Use ↑/↓, Page Up/Page Down, Home/End or the mouse wheel; **q**, **Escape** or **Ctrl+C** returns to the prompt and preserves any unfinished input. The viewer holds a stable snapshot while agents continue working; returning restores the latest output and panels. The transcript retains up to two million characters, including typed requests and agent output, and is saved with the project session by default. Output from inherited shell commands and native CLI sessions is not captured. `/clear` resets model conversation context, not the visible transcript.
+
 ### Cross-agent review
 
 ```text
@@ -202,14 +206,43 @@ JARVIS checks that two distinct providers are available before starting. The rev
 
 The final synthesis is instructed to distinguish confirmed findings, disagreements, and unverified claims. A complete `/review` workflow makes **three provider requests**.
 
+### Independent debate
+
+Use `/debate [request]` to compare approaches before implementing them. In an interactive terminal JARVIS asks how many AI agents to use and, when needed, which participants to include. With no request it also asks for the topic. Numbered choices reject invalid input; Escape, Ctrl+C or `/cancel` cancels before any agent starts.
+
+To skip questions, use `/debate --agents codex,claude,opencode <request>` or `jarvis run --debate --agents codex,claude,opencode "<request>"`. Non-interactive calls without a list use two providers. Each participant independently analyzes the same request and Git snapshot, without previous conversation or access to the other answers. The active agent synthesizes the results if included; otherwise the first participant does. Every stage is read-only. With N participants, a successful debate makes N+1 provider requests.
+
+All selected providers must be available before any starts. If an analysis fails or you use `/cancel`, JARVIS interrupts the analyses and skips synthesis. A successful synthesis becomes context for follow-up requests. `--debate` and `--review` are mutually exclusive.
+
+### Project sessions
+
+JARVIS resumes the most recently saved session in the current directory by default, including the selected agent, up to 24,000 characters of conversation per agent and the scrollable transcript. Completed tasks and ordinary exits save to `.jarvis/sessions/`. `! cd` saves the current session and loads the destination directory's session; returning to the original directory restores its work. Canonical paths prevent a symlink alias from creating a separate project identity.
+
+Use `/sessions` (or `jarvis sessions --cwd <directory>`) to list saved sessions. `/session new [name]` starts an empty conversation; `/session resume <id|last>` switches to a saved one; `/session resume` presents an interactive selector. IDs may be abbreviated to an unambiguous prefix of at least four characters. `/session rename <name>` changes the title. `/session fork [name]` saves a separate copy of the current context and transcript. Session switching is blocked during agent work.
+
+Session files are atomically replaced, have owner-only permissions on Unix, and are excluded from Git even without `jarvis init`. Stale concurrent writers are rejected instead of overwriting newer state; use `/session fork` to preserve local work separately. Invalid files and directory mismatches are reported rather than silently imported. These are **JARVIS sessions**: the adapters start fresh native provider runs and pass the saved recent context; native CLI session IDs and full native tool histories are not resumed.
+
+Set `sessions.autoResume: false` to start a new session at launch, or `sessions.enabled: false` for memory-only operation. A crash during a task can lose work since the last save; provider-generated file changes are not rolled back.
+
+### OpenCode
+
+OpenCode participates in normal requests, voice routing, reviews and debates. Use `/opencode`, `/use opencode`, or `/native opencode`. Its adapter uses the installed CLI's JSON output and native authentication; set `agents.providers.opencode.model` to a `provider/model` identifier if needed. Existing project configurations that explicitly list only Codex and Claude should add `opencode: { enabled: true }` under `agents.providers`.
+
+Automated runs use a scoped OpenCode agent and explicit permissions: file inspection by default, file edits and scoped local Git/test commands when edit mode is enabled. Independent analyses always deny edits, shell tools and delegation. Plugin loading and automatic sharing are disabled for these runs. Slash commands requiring the native interface use `/native opencode`. See the official [CLI](https://opencode.ai/docs/cli/) and [permissions](https://opencode.ai/docs/permissions/) references.
+
 ### Command reference
 
 | Command | What it does |
 | --- | --- |
 | `/codex [request]` | Select Codex and optionally send a request |
 | `/claude [request]` | Select Claude and optionally send a request |
+| `/opencode [request]` | Select OpenCode and optionally send a request |
 | `/use <agent>` | Change the active agent |
 | `/review <request>` | Run a task, cross-review, and synthesis |
+| `/debate [request]` | Choose participants, then independent read-only analyses and synthesis |
+| `/history` | Browse the in-memory transcript with a scrollbar |
+| `/sessions` | List sessions saved in this directory |
+| `/session [new\|resume\|rename\|fork]` | Inspect or manage the current project session |
 | `/agents` | Show whether each provider executable is available |
 | `/status` | Show the working directory, active agent, and task status |
 | `/context` | Display the context for the active agent |
@@ -223,9 +256,9 @@ The final synthesis is instructed to distinguish confirmed findings, disagreemen
 | `/help` | Show interactive help |
 | `/exit` | Exit JARVIS |
 
-**Tab** completes slash commands and agent names; **↑/↓** recall inputs from the current session (history is kept in memory only). A mistyped JARVIS command such as `/stauts` is not forwarded to the provider: JARVIS suggests the closest command, and `/<agent> /command` forwards it anyway. Output labels are colored on terminals; set `NO_COLOR=1` to disable.
+**Tab** completes slash commands and agent names; **↑/↓** recall inputs from the current session. A mistyped JARVIS command such as `/stauts` is not forwarded to the provider: JARVIS suggests the closest command, and `/<agent> /command` forwards it anyway. Output labels are colored on terminals; set `NO_COLOR=1` to disable.
 
-**Ctrl+C** cancels a running agent task; when idle, it exits JARVIS. While a task is running, `/status` and `/cancel` remain available. Other inputs are explicitly rejected so they are not silently lost.
+**Ctrl+C** cancels a running agent task; when idle, it exits JARVIS. In the history viewer it only closes the viewer. While a task is running, `/status`, `/cancel` and `/history` remain available. Other inputs are explicitly rejected so they are not silently lost.
 
 ### Native commands and passthrough
 
@@ -252,7 +285,7 @@ For native interactive features such as model selection or provider-specific bac
 
 With the default configuration, every shell command asks for confirmation. JARVIS does not try to classify arbitrary shell code as safe. `--yes` explicitly skips those confirmations for the session.
 
-Use `! cd` as a separate command. Changing directories reloads the destination project's configuration and clears the previous conversation. Shell aliases, exported variables, and other shell state do not persist between commands.
+Use `! cd` as a separate command. Changing directories saves the current session, reloads the destination project's configuration and restores its session. Shell aliases, exported variables, and other shell state do not persist between commands.
 
 ## Project context
 
@@ -266,7 +299,9 @@ Use `! cd` as a separate command. Changing directories reloads the destination p
 ├── decisions.md        # Explicit technical decisions
 ├── agents/
 │   ├── codex.md        # Codex-specific instructions
-│   └── claude.md       # Claude-specific instructions
+│   ├── claude.md       # Claude-specific instructions
+│   └── opencode.md     # OpenCode-specific instructions
+├── sessions/           # Local conversation snapshots, excluded from Git
 └── .gitignore          # Excludes sessions, cache, and audio
 ```
 
@@ -296,6 +331,13 @@ agents:
     claude:
       enabled: true
       permissionMode: default
+    opencode:
+      enabled: true
+      sandbox: read-only
+
+sessions:
+  enabled: true
+  autoResume: true
 
 orchestration:
   reviewProvider: claude
@@ -356,7 +398,7 @@ These settings permit edits for keyboard-driven automated requests according to 
 
 JARVIS runs on your machine. Configuration, process management, shell execution, and project memory are local. **Local-first does not mean offline:** requests and supplied context go to your chosen coding provider, whose own tools may read additional repository files.
 
-JARVIS does not manage credentials or save conversation transcripts to disk. It keeps up to 24,000 characters of recent conversation per agent in memory. Automated adapters request ephemeral sessions from the native CLIs; those providers' own logging, hooks, settings, and data policies still apply. Native interactive sessions use the provider's normal persistence behavior.
+JARVIS does not manage provider credentials. By default, project sessions save recent conversation and the terminal transcript locally; do not put secrets into requests you intend to retain. Disable this with `sessions.enabled: false`. Codex and Claude automated runs request ephemeral native sessions; OpenCode uses its native session storage. Providers' own logging, hooks, settings and data policies still apply. Native interactive sessions use the provider's normal persistence behavior.
 
 Only one JARVIS task runs at a time. This avoids concurrent writes by agents within the same JARVIS session; it is not a cross-process file lock. Use the tool in projects you trust, particularly when enabling shell commands, provider customizations, or edits.
 
@@ -367,7 +409,8 @@ Terminal input ───────────────┐
                              ▼
 Apple STT → VoiceInputRouter → Orchestrator → AgentProvider
                                   │              ├── Codex CLI
-                                  │              └── Claude CLI
+                                  │              ├── Claude CLI
+                                  │              └── OpenCode CLI
                                   ▼
                          Normalized event stream
                                   │
@@ -442,9 +485,9 @@ The tag starts `.github/workflows/release.yml` on a macOS runner, which:
 ## Current limitations
 
 - **Early release:** provider interfaces can change; an installed executable does not guarantee valid authentication, connectivity, quota, or compatible flags.
-- **Short-term conversation only:** recent text is carried between requests, but native provider sessions are not resumed.
+- **Bounded session context:** project sessions restore recent text and the transcript; full native provider tool histories are not resumed.
 - **Partial native passthrough:** interactive-only slash commands require `/native`.
-- **No background instructions yet:** `/btw` and `/debate` return an explicit not-implemented message.
+- **No background instructions yet:** `/btw` returns an explicit not-implemented message.
 - **macOS voice only:** hold-Space capture and text-to-speech need the native helper, a local keyboard, microphone/speech permissions, an available recognition language, and the macOS `say` utility. Wake words and `--live` are not implemented.
 - **Voice edits follow configuration:** `voice.allowEdits` defaults to true and can be disabled for read-only voice. Provider permission controls still apply; low-confidence recognition is rejected when confidence is supplied by Apple.
 - **No automatic review or semantic routing:** use `/review`; automatic routing currently means availability-based fallback.
@@ -455,7 +498,7 @@ The tag starts `.github/workflows/release.yml` on a macOS runner, which:
 | Release | Focus | Status |
 | --- | --- | --- |
 | **v0.1** | CLI, agent adapters, project context, shell access, cross-review | Implemented, early release |
-| **v0.2** | Persistent native sessions, side instructions, debate, stronger task coordination | Planned |
+| **v0.2** | Persistent native sessions, side instructions, debate, stronger task coordination | Project sessions, configurable debate and interactive choices implemented; native resume and side instructions planned |
 | **v0.3** | Turn-based voice, STT/TTS, push-to-talk, quiet mode, audio device selection | macOS push-to-talk/STT implemented; remaining features planned |
 | **v0.4** | Custom local wake words, aliases, sensitivity, cooldown, feedback suppression | Planned |
 | **v0.5** | Low-latency live conversation and interruption | Planned |
@@ -463,6 +506,18 @@ The tag starts `.github/workflows/release.yml` on a macOS runner, which:
 Spoken responses through the macOS system synthesizer are already available ahead of the full v0.3 voice release.
 
 For detailed requirements and acceptance criteria, see the [product and technical specification](JARVIS_V01.md).
+
+## License
+
+JARVIS is source-available under the [PolyForm Small Business License 1.0.0](LICENSE.md).
+
+Free for personal use, evaluation, research and teaching, and free at work for companies with fewer
+than 100 people and under 1,000,000 USD of revenue in the prior tax year. Larger companies, and
+anyone embedding JARVIS in a product or service they sell, need a commercial license:
+see [COMMERCIAL.md](COMMERCIAL.md).
+
+Contributions are welcome, but by opening a pull request you assign the copyright in your
+contribution to the project owner, so the dual licensing above stays possible.
 
 ## Integration references
 

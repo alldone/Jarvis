@@ -18,6 +18,7 @@ import { clean, Renderer, supportsColor } from '../src/cli/renderer.js';
 import { Application } from '../src/cli/application.js';
 import { Writable } from 'node:stream';
 import { VoiceInputRouter } from '../src/voice/input-router.js';
+import { OpenCodeProvider, opencodeDecoder } from '../src/providers/agent/opencode.js';
 
 const exec = promisify(execFile);
 const root = resolve(import.meta.dirname, '..');
@@ -82,7 +83,7 @@ test('Windows npm shims are unwrapped so multi-line arguments bypass cmd.exe', (
 
 test('init is idempotent, config validates, context is scoped to its provider', async t => {
   const { cwd } = await fixture(t);
-  assert.equal((await initProject(cwd)).length, 7);
+  assert.equal((await initProject(cwd)).length, 8);
   await writeFile(resolve(cwd, '.jarvis/context.md'), 'User-owned content');
   assert.equal((await initProject(cwd)).length, 0);
   assert.equal((await loadConfig(cwd)).version, 1);
@@ -142,6 +143,98 @@ test('review checks missing second provider before starting primary', async t =>
   await assert.rejects(orchestrator.review('Task'), /Missing Claude/);
   assert.equal(started, false);
   assert.equal(orchestrator.busy, false);
+});
+
+test('debate analyses are concurrent, independent and read-only; selected agent synthesizes', async t => {
+  const { orchestrator } = await fixture(t);
+  await orchestrator.use('claude');
+  await orchestrator.run('Earlier private conversation');
+  const calls: { id: string; input: any }[] = [];
+  let release!: () => void;
+  const bothStarted = new Promise<void>(resolve => { release = resolve; });
+  for (const [id, provider] of orchestrator.providers) {
+    provider.send = async function* (input) {
+      calls.push({ id, input });
+      if (calls.length === 2) release();
+      await bothStarted;
+      yield { type: 'text', text: `Analysis from ${id}` };
+      yield { type: 'done' };
+    };
+  }
+  await orchestrator.debate('Confronta le alternative');
+  assert.deepEqual(new Set(calls.slice(0, 2).map(call => call.id)), new Set(['codex', 'claude']));
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.equal(call.input.readOnly, true);
+    assert.equal(call.input.history, undefined);
+  }
+  assert.equal(calls[0]!.input.prompt, calls[1]!.input.prompt);
+  assert.doesNotMatch(calls[0]!.input.prompt, /Earlier private|Analysis from/);
+  assert.equal(calls[2]!.id, 'claude');
+  assert.match(calls[2]!.input.prompt, /Analysis from codex/);
+  assert.match(calls[2]!.input.prompt, /Analysis from claude/);
+  assert.equal(orchestrator.active, 'claude');
+  await orchestrator.run('Continua');
+  assert.match(calls[3]!.input.history, /DEBATE RESULT/);
+});
+
+test('debate preflight rejects empty requests and unavailable peers without running either agent', async t => {
+  const { orchestrator } = await fixture(t);
+  let started = false;
+  orchestrator.providers.get('codex')!.send = async function* () { started = true; yield { type: 'done' }; };
+  await assert.rejects(orchestrator.debate('  '), /Uso: \/debate/);
+  orchestrator.providers.get('claude')!.availability = async () => ({ available: false, detail: 'Missing Claude' });
+  await assert.rejects(orchestrator.debate('Compare'), /Missing Claude/);
+  orchestrator.providers.delete('claude');
+  await assert.rejects(orchestrator.debate('Compare'), /due provider/);
+  assert.equal(started, false);
+  assert.equal(orchestrator.busy, false);
+});
+
+test('debate cancellation stops both subprocesses and does not synthesize', async t => {
+  const { orchestrator } = await fixture(t);
+  let started = 0;
+  let ready!: () => void;
+  const runningBoth = new Promise<void>(resolve => { ready = resolve; });
+  for (const provider of orchestrator.providers.values()) {
+    const send = provider.send.bind(provider);
+    provider.send = async function* (input) {
+      for await (const event of send(input)) {
+        if (event.type === 'status' && ++started === 2) ready();
+        yield event;
+      }
+    };
+  }
+  const running = orchestrator.debate('SIMULATE_HANG');
+  const rejected = assert.rejects(running, /annullata/);
+  await runningBoth;
+  await assert.rejects(orchestrator.run('Concurrent'), /già in corso/);
+  await orchestrator.interrupt();
+  await rejected;
+  assert.equal(orchestrator.busy, false);
+  assert.match(await orchestrator.run('Continue'), /Risultato/);
+});
+
+test('failed debate interrupts peer and preserves the original error', async t => {
+  const { orchestrator } = await fixture(t);
+  let started!: () => void;
+  const peerStarted = new Promise<void>(resolve => { started = resolve; });
+  const codex = orchestrator.providers.get('codex')!;
+  const send = codex.send.bind(codex);
+  codex.send = async function* (input) {
+    for await (const event of send({ ...input, prompt: 'SIMULATE_HANG' })) {
+      if (event.type === 'status') started();
+      yield event;
+    }
+  };
+  orchestrator.providers.get('claude')!.send = async function* () {
+    await peerStarted;
+    yield { type: 'error', error: new Error('Independent analysis failed') };
+  };
+  await assert.rejects(orchestrator.debate('Compare'), /Independent analysis failed/);
+  assert.equal(orchestrator.busy, false);
+  codex.send = send;
+  assert.match(await orchestrator.run('Continue'), /Risultato/);
 });
 
 test('failures release task lock and next requests remain usable', async t => {
@@ -235,6 +328,109 @@ test('application confirms shell commands and preserves cwd across requests', as
   await assert.rejects(app.execute('/btw additional information'), /NON inviata/);
   await assert.rejects(app.execute('/stauts'), /forse intendevi \/status/);
   await assert.rejects(app.execute('/use'), /Uso: \/use <agente>. Abilitati: codex, claude/);
+});
+
+test('application routes debate and allows history while a task is busy', async t => {
+  const { cwd, config } = await fixture(t);
+  let viewed = 0;
+  const renderer = new Renderer(new Writable({ write(_c, _e, done) { done(); } }));
+  const app = new Application(cwd, config, renderer, {
+    interactive: true, confirm: async () => false, inherit: async () => 0,
+    history: () => { viewed++; },
+  });
+  t.after(() => app.orchestrator.close());
+  await app.execute('/debate Compare approaches');
+  assert.match(renderer.transcript.text(), /Debate in sola lettura/);
+  assert.match(renderer.transcript.text(), /Sintesi del dibattito/);
+  app.orchestrator.busy = true;
+  await app.execute('/history');
+  assert.equal(viewed, 1);
+  app.orchestrator.busy = false;
+});
+
+test('application restores sessions on restart and directory changes, and creates separate conversations', async t => {
+  const { cwd, config } = await fixture(t);
+  const create = () => new Application(cwd, config, new Renderer(new Writable({ write(_c, _e, done) { done(); } })), {
+    interactive: false, confirm: async () => false, inherit: async () => 0,
+  });
+  const first = create();
+  await first.execute('/claude Remember the API decision');
+  const original = first.session!.id;
+  await first.orchestrator.close();
+  const app = create();
+  t.after(() => app.orchestrator.close());
+  await app.initialize();
+  assert.equal(app.orchestrator.active, 'claude');
+  assert.match(app.orchestrator.snapshot().history.claude!, /Remember the API decision/);
+  assert.match(app.renderer.transcript.text(), /Risultato Claude/);
+  await app.execute('/session new Another task');
+  assert.notEqual(app.session!.id, original);
+  assert.deepEqual(app.orchestrator.snapshot().history, {});
+  await app.execute(`/session resume ${original.slice(0, 8)}`);
+  assert.equal(app.session!.id, original);
+  await app.execute('/session rename API architecture');
+  const other = resolve(cwd, 'another');
+  await mkdir(other);
+  await app.execute('! cd another');
+  assert.notEqual(app.session!.id, original);
+  assert.deepEqual(app.orchestrator.snapshot().history, {});
+  assert.doesNotMatch(app.renderer.transcript.text(), /Remember the API decision/);
+  await app.execute(`! cd "${cwd}"`);
+  assert.equal(app.session!.id, original);
+  assert.equal(app.session!.title, 'API architecture');
+  await app.execute('/clear');
+  await app.orchestrator.close();
+  const cleared = create();
+  t.after(() => cleared.orchestrator.close());
+  await cleared.initialize();
+  assert.deepEqual(cleared.orchestrator.snapshot().history, {});
+});
+
+test('OpenCode adapter streams JSON and read-only debate sends scoped permissions to all three agents', async t => {
+  const { cwd, binary, config, orchestrator } = await fixture(t);
+  const settings = { ...config.agents.providers.codex!, binary };
+  orchestrator.providers.set('opencode', new OpenCodeProvider(settings));
+  const log = resolve(cwd, 'opencode-calls.jsonl');
+  const before = process.env.JARVIS_TEST_LOG;
+  process.env.JARVIS_TEST_LOG = log;
+  t.after(() => { if (before === undefined) delete process.env.JARVIS_TEST_LOG; else process.env.JARVIS_TEST_LOG = before; });
+  await orchestrator.use('opencode');
+  assert.match(await orchestrator.run('Hello'), /OpenCode/);
+  assert.match(await orchestrator.debate('Compare', ['codex', 'claude', 'opencode']), /OpenCode/);
+  const calls = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(calls.length, 5);
+  const openCodeCalls = calls.filter(call => call.args.includes('--format'));
+  assert.equal(openCodeCalls.length, 3);
+  for (const call of openCodeCalls) {
+    assert.equal(JSON.parse(call.permissions)['*'], 'deny');
+    assert.equal(JSON.parse(call.permissions).read, 'allow');
+    assert.equal(JSON.parse(call.permissions).edit, undefined);
+    assert.ok(!call.args.includes('--auto'));
+  }
+  await assert.rejects(orchestrator.debate('Compare', ['codex', 'codex']), /distinti/);
+  assert.equal(opencodeDecoder()({ type: 'step_finish', part: { reason: 'tool-calls' } }).length, 0);
+  assert.equal(opencodeDecoder()({ type: 'error', error: { data: { message: 'denied' } } })[0]!.type, 'error');
+});
+
+test('interactive debate chooses count and participants before running; cancellation starts no agents', async t => {
+  const { cwd, binary, config } = await fixture(t);
+  config.agents.providers.opencode = { ...config.agents.providers.codex!, binary };
+  const asked: string[] = [];
+  const answers = ['1', '3']; // Two agents, Claude + OpenCode.
+  const app = new Application(cwd, config, new Renderer(new Writable({ write(_c, _e, done) { done(); } })), {
+    interactive: true, confirm: async () => false, inherit: async () => 0,
+    ask: async question => { asked.push(question); return answers.shift(); },
+  });
+  t.after(() => app.orchestrator.close());
+  await app.execute('/debate Compare');
+  assert.equal(asked.length, 2);
+  assert.match(app.renderer.transcript.text(), /claude \+ opencode/);
+  assert.equal(app.orchestrator.active, 'claude');
+  let called = false;
+  for (const provider of app.orchestrator.providers.values()) provider.send = async function* () { called = true; yield { type: 'done' }; };
+  await app.execute('/debate Compare again');
+  assert.equal(called, false);
+  assert.match(app.renderer.transcript.text(), /Debate annullato/);
 });
 
 test('provider commands select a persistent agent with or without an initial request', async t => {
@@ -354,6 +550,11 @@ test('agents subcommand reports availability and run - reads the request from st
   await writeFile(resolve(cwd, '.jarvis/jarvis.yml'), `agents:\n  providers:\n    codex: { binary: ${JSON.stringify(binary)} }\n    claude: { binary: ${JSON.stringify(binary)} }\n`);
   const agents = await exec(process.execPath, [cli, 'agents'], { cwd });
   assert.match(agents.stdout, /codex\s+✓/);
+  const debate = await exec(process.execPath, [cli, 'run', '--debate', '--agent', 'claude', 'Compare approaches'], { cwd });
+  assert.match(debate.stdout, /Debate in sola lettura: claude \+ codex/);
+  assert.match(debate.stdout, /Sintesi del dibattito: claude/);
+  assert.equal((debate.stdout.match(/Risultato .* di prova/g) ?? []).length, 3);
+  await assert.rejects(exec(process.execPath, [cli, 'run', '--review', '--debate', 'Compare'], { cwd }), /alternativi/);
   await writeFile(resolve(cwd, '.jarvis/jarvis.yml'), 'agents:\n  providers:\n    codex: { binary: /nonexistent/jarvis-missing }\n');
   await assert.rejects(exec(process.execPath, [cli, 'agents'], { cwd }), (error: { code: number; stdout: string }) => error.code === 1 && /codex\s+✗/.test(error.stdout));
   await writeFile(resolve(cwd, '.jarvis/jarvis.yml'), `agents:\n  providers:\n    codex: { binary: ${JSON.stringify(binary)} }\n`);

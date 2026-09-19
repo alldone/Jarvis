@@ -4,7 +4,7 @@ export type Command =
   | { kind: 'shell'; text: string }
   | { kind: 'empty' };
 
-export const COMMANDS = ['use', 'review', 'agents', 'status', 'context', 'help', 'exit', 'quit', 'native', 'cancel', 'clear', 'btw', 'debate'] as const;
+export const COMMANDS = ['use', 'review', 'agents', 'status', 'context', 'help', 'history', 'sessions', 'session', 'exit', 'quit', 'native', 'cancel', 'clear', 'btw', 'debate'] as const;
 
 export function parseCommand(line: string, providerIds: Iterable<string>): Command {
   const text = line.trim();
@@ -55,6 +55,8 @@ export function complete(line: string, providerIds: Iterable<string>): [string[]
     return [hits, agentArg[2]!];
   }
   const contextArg = /^\/context\s+(\S*)$/.exec(line);
+  const sessionArg = /^\/session\s+(\S*)$/.exec(line);
+  if (sessionArg) return [['new ', 'resume ', 'rename ', 'fork '].filter(value => value.startsWith(sessionArg[1]!)), sessionArg[1]!];
   if (contextArg) return [['add ', 'refresh'].filter(value => value.startsWith(contextArg[1]!)), contextArg[1]!];
   if (!/^\/\S*$/.test(line)) return [[], line];
   const names = [...new Set([...ids, ...COMMANDS])].map(name => `/${name}`);
@@ -65,7 +67,17 @@ export const HELP = `JARVIS — comandi
   /use <agente>           Cambia agente attivo
   /codex [richiesta]      Seleziona Codex e, se presente, invia la richiesta
   /claude [richiesta]     Seleziona Claude e, se presente, invia la richiesta
+  /opencode [richiesta]   Seleziona OpenCode e, se presente, invia la richiesta
   /review <richiesta>     Task, review indipendente, sintesi
+  /debate [richiesta]     Scegli quante e quali AI, poi analisi e sintesi in sola lettura
+  /debate --agents codex,claude,opencode <richiesta>  Partecipanti espliciti
+  /history               Cronologia con scrollbar (anche Pagina su)
+  /sessions              Elenca le sessioni salvate nella cartella
+  /session               Mostra la sessione corrente
+  /session new [nome]    Inizia una nuova conversazione
+  /session fork [nome]   Salva una copia della conversazione corrente
+  /session resume [id]   Riprende una sessione (senza ID: scelta interattiva)
+  /session rename <nome> Rinomina la sessione corrente
   /agents                Mostra disponibilità delle CLI
   /status                Mostra progetto, agente e stato
   /context               Mostra il contesto attivo
@@ -80,6 +92,7 @@ export const HELP = `JARVIS — comandi
   /exit                  Esce
 
 Tastiera: Tab completa comandi e agenti; ↑/↓ richiamano gli input della sessione.
+Cronologia: Pagina su apre; ↑/↓, PgUp/PgDn, rotella scorrono; Home/End; Esc/q torna al prompt.
 Le richieste testuali rispettano i permessi del provider. La voce consente scrittura file se voice.allowEdits è true (default).
 Commit, push, cancellazioni e azioni distruttive richiedono sempre una richiesta esplicita.
 L'agente selezionato resta attivo per testo e voce. La voce è attiva di default (macOS): tieni premuto SPAZIO sul prompt vuoto.
@@ -88,5 +101,5 @@ Rilascia per inviare; Esc/Ctrl+C annulla la registrazione.
 I comandi slash sconosciuti sono inoltrati al provider se supportati; se somigliano a un comando JARVIS,
 JARVIS chiede conferma della grafia: usa /<agente> /comando per inoltrarli comunque.
 Claude -p supporta skill, non tutti i comandi interattivi; Codex richiede /native.
-JARVIS mantiene gli ultimi scambi in memoria, senza salvare trascrizioni.
-/btw, /debate, wake word e sessioni native persistenti sono previsti nelle prossime versioni.`;
+JARVIS salva contesto e cronologia in .jarvis/sessions/ (esclusa da Git); sessions.enabled: false disattiva il salvataggio.
+/btw, wake word e sessioni native persistenti sono previsti nelle prossime versioni.`;
